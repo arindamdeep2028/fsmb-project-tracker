@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+/* FSMB tokens: clean-room white, graphite ink, steel blue actions, three signal colours for deadline state only. */
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-paper: #f6f8fa;
+  --color-panel: #ffffff;
+  --color-ink: #1d2733;
+  --color-ink-soft: #4a5868;
+  --color-ink-faint: #7a8796;
+  --color-line: #d8dee6;
+  --color-line-soft: #e8ecf1;
+  --color-steel: #355c7d;
+  --color-steel-dark: #274761;
+  --color-steel-wash: #eaf0f5;
+  --color-graphite: #1d2733;
+  --color-signal-red: #c4302b;
+  --color-signal-amber: #b7791f;
+  --color-signal-green: #2e7d55;
+  --color-signal-neutral: #a3adb8;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+/* Every figure lines up: tabular numbers everywhere. */
+body { font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--color-steel); outline-offset: 2px; border-radius: 4px; }
+
+/* The signal rail: a 4px left edge that carries deadline state on task rows and chips. */
+.rail { position: relative; }
+.rail::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; border-radius: 2px; background: var(--rail, var(--color-signal-neutral)); }
+.rail-red { --rail: var(--color-signal-red); }
+.rail-amber { --rail: var(--color-signal-amber); }
+.rail-green { --rail: var(--color-signal-green); }
+.rail-neutral { --rail: var(--color-signal-neutral); }
+.rail-done { --rail: var(--color-line); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

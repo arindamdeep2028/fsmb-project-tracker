@@ -63,16 +63,19 @@ export const projectInput = z.object({
 });
 export type ProjectInput = z.input<typeof projectInput>;
 
+export const password = z.string().min(10, "Use at least 10 characters").max(72);
+
+/** Create user: the admin sets the password (sent only to Supabase Auth via auth-admin; never shown or stored). */
 export const inviteInput = z.object({
   full_name: z.string().trim().min(1, "Add the person's name").max(120),
   login_name: z.string().trim().min(1).max(60).regex(/^[a-z0-9._-]+$/i, "Letters, numbers, dots, dashes only"),
   email: z.email("Enter a valid email"),
   role: z.enum(["admin", "dept_head", "pm", "engineer"]),
-  department_id: id.nullable().optional(),
-});
+  department_id: z.string().min(1, "Choose a department").pipe(id),
+  password,
+  confirm_password: z.string(),
+}).refine((v) => v.password === v.confirm_password, { message: "The two passwords don't match", path: ["confirm_password"] });
 export type InviteInput = z.input<typeof inviteInput>;
-
-export const password = z.string().min(10, "Use at least 10 characters").max(72);
 
 export const settingsInput = z.object({
   office_start: z.number().int().min(0).max(23),

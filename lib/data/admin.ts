@@ -2,10 +2,16 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Enums } from "@/types/database";
 
+/**
+ * profiles ↔ departments has two relationships (profiles.department_id and the department_heads junction),
+ * so the embed names the foreign key; a bare departments(...) embed fails with PGRST201.
+ */
 export async function listUsers() {
   const supabase = await createClient();
-  const { data } = await supabase.from("profiles").select("*, department:departments(name)").order("full_name");
-  return data ?? [];
+  const { data, error } = await supabase.from("profiles")
+    .select("*, department:departments!profiles_department_id_fkey(name)").order("full_name");
+  if (error) throw new Error(`The user list could not be loaded: ${error.message}`);
+  return data;
 }
 
 export async function listDepartmentsWithHeads() {

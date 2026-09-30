@@ -8,14 +8,20 @@ import type { Enums, TablesUpdate } from "@/types/database";
 
 const refresh = () => revalidatePath("/", "layout");
 
-/** Creates the account through the auth-admin Edge Function (role and department go in app metadata). */
-export async function inviteUser(input: InviteInput): Promise<ActionResult<{ temporaryPassword: string }>> {
+/**
+ * Creates the account through the auth-admin Edge Function (role and department go in app metadata; the
+ * on_auth_user_created trigger builds the profile). The admin's password goes only to Supabase Auth; it is
+ * never returned, logged or stored. The user must choose their own password at first sign-in.
+ */
+export async function inviteUser(input: InviteInput): Promise<ActionResult<{ loginName: string }>> {
   const p = inviteInput.safeParse(input);
   if (!p.success) return { ok: false, message: firstIssue(p.error) };
-  const r = await callEdge<{ temporary_password: string }>("auth-admin", { action: "invite", ...p.data });
+  const { confirm_password: _confirm, ...account } = p.data;
+  const r = await callEdge<{ login_name?: string }>("auth-admin", { action: "invite", ...account, must_change_password: true });
   if (!r.ok) return { ok: false, message: r.message };
   refresh();
-  return { ok: true, message: `${p.data.full_name} can now sign in`, data: { temporaryPassword: r.data.temporary_password } };
+  const loginName = r.data.login_name ?? account.login_name;
+  return { ok: true, message: `User created successfully. ${account.full_name} signs in with ${account.email}.`, data: { loginName } };
 }
 
 export async function sendResetLink(userId: string): Promise<ActionResult> {

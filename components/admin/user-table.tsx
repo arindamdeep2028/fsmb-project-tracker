@@ -49,43 +49,41 @@ export function UserTable({ users, departments }: { users: User[]; departments: 
   );
 }
 
+/** Create user: the admin sets the password; it goes only to Supabase Auth and is never shown again. */
 function InviteDialog({ departments, onClose }: { departments: { id: string; name: string }[]; onClose: () => void }) {
-  const [v, setV] = useState({ full_name: "", login_name: "", email: "", role: "engineer" as Role, department_id: departments[0]?.id ?? "" });
+  const [v, setV] = useState({ full_name: "", login_name: "", email: "", role: "engineer" as Role, department_id: "", password: "", confirm_password: "" });
   const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
-  const [temp, setTemp] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const toast = useToast();
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent title={temp ? "Account created" : "Add a user"} description={temp ? undefined : "They sign in with a temporary password and must change it straight away."}>
-        {temp ? (
-          <div className="space-y-4">
-            <p className="text-[15px]">Give {v.full_name} this temporary password. It is shown only once.</p>
-            <div className="rounded-md border border-line bg-paper px-4 py-3 text-lg font-semibold tracking-wide select-all">{temp}</div>
-            <p className="text-sm text-ink-soft">Login name: <strong>{v.login_name}</strong> or {v.email}</p>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => { navigator.clipboard.writeText(temp); toast({ ok: true, message: "Copied" }); }}>Copy password</Button>
-              <Button onClick={onClose}>Done</Button>
-            </div>
+      <DialogContent title="Add a user" description="Share the password with them privately. They must choose their own password at first sign-in.">
+        <form className="space-y-4" onSubmit={async (e) => {
+          e.preventDefault();
+          if (v.password !== v.confirm_password) { setResult({ ok: false, message: "The two passwords don't match." }); return; }
+          setPending(true);
+          const r = await inviteUser(v);
+          setPending(false);
+          if (!r.ok) { setResult(r); return; }
+          toast({ ok: true, message: r.message });
+          onClose();
+        }}>
+          <Field label="Full name" htmlFor="u-name"><Input id="u-name" value={v.full_name} onChange={(e) => setV({ ...v, full_name: e.target.value })} required /></Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Login name" htmlFor="u-login"><Input id="u-login" value={v.login_name} onChange={(e) => setV({ ...v, login_name: e.target.value.toLowerCase() })} required autoComplete="off" /></Field>
+            <Field label="Email" htmlFor="u-email"><Input id="u-email" type="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} required autoComplete="off" /></Field>
+            <Field label="Password" htmlFor="u-pw" hint="At least 10 characters.">
+              <Input id="u-pw" type="password" value={v.password} onChange={(e) => setV({ ...v, password: e.target.value })} required minLength={10} maxLength={72} autoComplete="new-password" />
+            </Field>
+            <Field label="Confirm password" htmlFor="u-pw2">
+              <Input id="u-pw2" type="password" value={v.confirm_password} onChange={(e) => setV({ ...v, confirm_password: e.target.value })} required minLength={10} maxLength={72} autoComplete="new-password" />
+            </Field>
+            <Field label="Role" htmlFor="u-role"><Select id="u-role" value={v.role} onChange={(e) => setV({ ...v, role: e.target.value as Role })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}</Select></Field>
+            <Field label="Department" htmlFor="u-dept"><Select id="u-dept" value={v.department_id} onChange={(e) => setV({ ...v, department_id: e.target.value })} required><option value="">Choose a department</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select></Field>
           </div>
-        ) : (
-          <form className="space-y-4" onSubmit={async (e) => {
-            e.preventDefault(); setPending(true);
-            const r = await inviteUser({ ...v, department_id: v.department_id || null });
-            setPending(false); setResult(r);
-            if (r.ok && r.data) setTemp(r.data.temporaryPassword);
-          }}>
-            <Field label="Full name" htmlFor="u-name"><Input id="u-name" value={v.full_name} onChange={(e) => setV({ ...v, full_name: e.target.value })} required /></Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Login name" htmlFor="u-login"><Input id="u-login" value={v.login_name} onChange={(e) => setV({ ...v, login_name: e.target.value.toLowerCase() })} required /></Field>
-              <Field label="Email" htmlFor="u-email"><Input id="u-email" type="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} required /></Field>
-              <Field label="Role" htmlFor="u-role"><Select id="u-role" value={v.role} onChange={(e) => setV({ ...v, role: e.target.value as Role })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}</Select></Field>
-              <Field label="Department" htmlFor="u-dept"><Select id="u-dept" value={v.department_id} onChange={(e) => setV({ ...v, department_id: e.target.value })}><option value="">None</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select></Field>
-            </div>
-            <FormMessage result={result && !result.ok ? result : null} />
-            <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" pending={pending}>Create account</Button></div>
-          </form>
-        )}
+          <FormMessage result={result && !result.ok ? result : null} />
+          <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" pending={pending}>Create account</Button></div>
+        </form>
       </DialogContent>
     </Dialog>
   );

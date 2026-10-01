@@ -94,7 +94,7 @@ export async function projectDailyLog(
   if (from > opts.to) return [];
   const supabase = await createClient();
   let q = supabase.from("daily_reports")
-    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_code, task_title, status_after, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title))")
+    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, locked, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_id, task_code, task_title, status_after, progress_after, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title))")
     .eq("project_id", project.id).gte("report_date", from).lte("report_date", opts.to).order("submitted_at");
   if (opts.user) q = q.eq("user_id", opts.user.id);
   const { data } = await q;
@@ -104,11 +104,14 @@ export async function projectDailyLog(
     const base = { date, dayNo: projectDayNumber(start, date), offDay: isOffDay(date, opts.workdays) };
     const reports = byDate.get(date) ?? [];
     if (!reports.length) {
-      return [{ ...base, key: date, reportId: null, mainTask: [], dailySubTask: "", assignedTo: opts.user?.name ?? "", issues: "", nextTask: "", remarks: "" }];
+      return [{ ...base, key: date, reportId: null, userId: null, locked: false, edit: null, mainTask: [], dailySubTask: "", assignedTo: opts.user?.name ?? "", issues: "", nextTask: "", remarks: "" }];
     }
-    return reports.map((r) => ({
-      ...base, key: r.id, reportId: r.id,
-      mainTask: [...(r.daily_report_items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at)).map((i) => (i.parent
+    return reports.map((r) => {
+      const items = [...(r.daily_report_items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
+      return {
+      ...base, key: r.id, reportId: r.id, userId: r.user_id, locked: r.locked,
+      edit: { taskId: items[0]?.task_id ?? null, status: items[0]?.status_after ?? null, progress: items[0]?.progress_after ?? null, nextTask: r.next_task_text ?? "" },
+      mainTask: items.map((i) => (i.parent
         ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
         : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after })),
       dailySubTask: r.update_text,
@@ -116,6 +119,7 @@ export async function projectDailyLog(
       issues: r.issues ?? "",
       nextTask: r.next_task ? taskLabel(r.next_task.code, r.next_task.title) : r.next_task_text ?? "",
       remarks: r.remarks ?? "",
-    }));
+      };
+    });
   });
 }

@@ -52,6 +52,21 @@ export const reportInput = z.object({
 });
 export type ReportInput = z.input<typeof reportInput>;
 
+/** One row of the project's Daily Follow Up, added or edited in place (Daily reports tab). */
+export const dailyRowInput = z.object({
+  project_id: id,
+  user_id: id,
+  report_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date"),
+  task_id: id.nullable(),
+  update_text: z.string().trim().min(1, "Write the Daily Sub Task: what was done that day").max(5000),
+  status: taskStatus.nullable(),
+  progress: z.number().min(0).max(100).nullable(),
+  issues: z.string().max(3000),
+  next_task_text: z.string().max(1000),
+  remarks: z.string().max(3000),
+});
+export type DailyRowInput = z.input<typeof dailyRowInput>;
+
 export const projectInput = z.object({
   code: z.string().trim().min(1, "Add a project code").max(20),
   name: z.string().trim().min(1, "Add a project name").max(200),

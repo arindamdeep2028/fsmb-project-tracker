@@ -3,7 +3,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { type ActionResult, fail } from "@/lib/errors";
 import { ALLOWED_TYPES, BUCKET, MAX_BYTES } from "@/lib/storage";
-import { firstIssue, reportInput, type ReportInput } from "@/lib/validation";
+import { dailyRowInput, firstIssue, reportInput, type DailyRowInput, type ReportInput } from "@/lib/validation";
+import { dhakaToday } from "@/lib/time";
 import type { Json } from "@/types/database";
 
 const refresh = () => revalidatePath("/", "layout");
@@ -23,6 +24,48 @@ export async function saveReport(input: ReportInput): Promise<ActionResult<{ id:
   if (error) return fail(error);
   refresh();
   return { ok: true, message: "Report saved", data: { id: data } };
+}
+
+/**
+ * Adds or edits one row of the Daily Follow Up from the Daily reports tab (one row per person, project and day).
+ * Your own row for today goes through save_daily_report, exactly like the update form. A row for another person
+ * or another date is written to the tables directly; RLS and the report triggers allow that only for an Admin,
+ * so every other user stays limited to their own row for today.
+ */
+export async function saveDailyRow(input: DailyRowInput): Promise<ActionResult<{ id: string }>> {
+  const p = dailyRowInput.safeParse(input);
+  if (!p.success) return { ok: false, message: firstIssue(p.error) };
+  const v = p.data;
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return { ok: false, message: "Sign in again to save." };
+  const item = v.task_id ? { task_id: v.task_id, status_after: v.status, progress_after: v.progress, note: null } : null;
+
+  if (v.user_id === auth.user.id && v.report_date === dhakaToday()) {
+    return saveReport({
+      project_id: v.project_id, update_text: v.update_text, issues: v.issues, next_task_id: null,
+      next_task_text: v.next_task_text, remarks: v.remarks, items: item ? [item] : [],
+    });
+  }
+
+  const { data: report, error } = await supabase.from("daily_reports")
+    .upsert({
+      user_id: v.user_id, project_id: v.project_id, report_date: v.report_date, day_name: "", // day_name: set by trigger
+      update_text: v.update_text,
+      issues: v.issues || null, next_task_id: null, next_task_text: v.next_task_text || null, remarks: v.remarks || null,
+    }, { onConflict: "user_id,project_id,report_date" })
+    .select("id").single();
+  if (error) return fail(error);
+  let del = supabase.from("daily_report_items").delete().eq("report_id", report.id);
+  if (item) del = del.neq("task_id", item.task_id);
+  const { error: dErr } = await del;
+  if (dErr) return fail(dErr);
+  if (item) {
+    const { error: iErr } = await supabase.from("daily_report_items").upsert({ report_id: report.id, ...item, task_code: "", task_title: "" }, { onConflict: "report_id,task_id" }); // snapshots: set by trigger
+    if (iErr) return fail(iErr);
+  }
+  refresh();
+  return { ok: true, message: "Daily update saved", data: { id: report.id } };
 }
 
 export async function recordAttachment(input: { report_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number }): Promise<ActionResult> {

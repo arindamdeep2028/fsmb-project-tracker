@@ -29,7 +29,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const canUpload = (mine && open) || manages;
   const canDeleteFiles = (mine && open) || manages;
   const row: DailyRow = {
-    key: r.id, date: r.report_date, reportId: null, offDay: false, assignedTo: r.author?.full_name ?? "",
+    key: r.id, date: r.report_date, reportId: null, userId: r.user_id, locked: r.locked, edit: null, offDay: false, assignedTo: r.author?.full_name ?? "",
     dayNo: r.project ? projectDayNumber(projectStart(r.project), r.report_date) : null,
     mainTask: items.map((i) => (i.parent
       ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }

@@ -3,6 +3,8 @@ import { sheetDate, weekday, type DailyRow } from "@/lib/sheet";
 import { cn } from "@/lib/utils";
 
 export const DAILY_HEAD = ["Day", "Date", "Day", "Main Task", "Daily Sub Task", "Assigned To", "Status", "Issues", "Next Task", "Remarks"] as const;
+/** Fixed column widths (px), so adding or editing a row never shifts the grid. */
+const DAILY_WIDTHS = [60, 112, 84, 160, 188, 96, 116, 116, 130, 130];
 
 /** Header row of the Daily Follow Up sheet (shared by the log and the update form). */
 export function DailyHead() {
@@ -29,14 +31,19 @@ export function DayCells({ date, dayNo, rowSpan }: { date: string; dayNo: number
  * The project's Daily Follow Up, laid out like the workbook sheet: Day | Date | Day | Main Task | Daily Sub Task |
  * Assigned To | Status | Issues | Next Task | Remarks. Non-working days are shaded; each filled row opens its report.
  */
-export function DailyLogTable({ rows, empty = "No daily updates in this range." }: { rows: DailyRow[]; empty?: string }) {
-  const cell = "border border-line px-3 py-2 align-top whitespace-pre-wrap";
+export function DailyLogTable({ rows, empty = "No daily updates in this range.", replaceRow, rowAction, footer }: {
+  rows: DailyRow[]; empty?: string;
+  /** in-place editing (Daily reports tab): a row rendered instead of `r`, an action under the name, extra rows at the end */
+  replaceRow?: (r: DailyRow) => React.ReactNode | null; rowAction?: (r: DailyRow) => React.ReactNode; footer?: React.ReactNode;
+}) {
+  const cell = "border border-line px-2 py-2 align-top whitespace-pre-wrap break-words";
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-panel">
-      <table className="w-full min-w-[1000px] border-collapse text-sm">
+      <table className="w-full min-w-[1192px] table-fixed border-collapse text-sm">
+        <colgroup>{DAILY_WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
         <thead><DailyHead /></thead>
         <tbody>
-          {rows.length === 0 ? <tr><td colSpan={DAILY_HEAD.length} className="px-3 py-8 text-center text-ink-soft">{empty}</td></tr> : rows.map((r) => (
+          {rows.length === 0 && !footer ? <tr><td colSpan={DAILY_HEAD.length} className="px-3 py-8 text-center text-ink-soft">{empty}</td></tr> : rows.map((r) => replaceRow?.(r) ?? (
             <tr key={r.key} className={cn(r.offDay && "bg-[#9c4a14] text-white")}>
               {r.offDay ? (
                 <>
@@ -45,23 +52,24 @@ export function DailyLogTable({ rows, empty = "No daily updates in this range." 
                   <td className="border border-line px-2 py-1.5 text-center whitespace-nowrap">{weekday(r.date)}</td>
                 </>
               ) : <DayCells date={r.date} dayNo={r.dayNo} />}
-              <td className={cn(cell, "min-w-44 text-center")}>
+              <td className={cn(cell, "text-center")}>
                 {r.mainTask.map((m, i) => (
                   <div key={i} className={cn(i > 0 && "mt-1.5")}>{m.label}{m.sub ? <span className="block text-xs opacity-80">{m.sub}</span> : null}</div>
                 ))}
               </td>
-              <td className={cn(cell, "min-w-52")}>
+              <td className={cell}>
                 {r.reportId ? <Link href={`/daily-reports/${r.reportId}`} className="hover:text-steel hover:underline">{r.dailySubTask}</Link> : null}
               </td>
-              <td className={cn(cell, "text-center whitespace-nowrap")}>{r.assignedTo}</td>
+              <td className={cn(cell, "text-center")}>{r.assignedTo}{rowAction ? <div className="mt-1">{rowAction(r)}</div> : null}</td>
               <td className={cn(cell, "text-center")}>
                 {r.mainTask.map((m, i) => <div key={i} className={cn(i > 0 && "mt-1.5")}>{m.status ?? ""}</div>)}
               </td>
-              <td className={cn(cell, "min-w-28")}>{r.issues}</td>
-              <td className={cn(cell, "min-w-36")}>{r.nextTask}</td>
-              <td className={cn(cell, "min-w-36")}>{r.remarks}</td>
+              <td className={cell}>{r.issues}</td>
+              <td className={cell}>{r.nextTask}</td>
+              <td className={cell}>{r.remarks}</td>
             </tr>
           ))}
+          {footer}
         </tbody>
       </table>
     </div>

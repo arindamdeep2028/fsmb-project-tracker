@@ -31,6 +31,9 @@ type Props = {
 type DialogState = null | { kind: "new"; parent?: TaskNode } | { kind: "edit"; task: TaskNode } | { kind: "extend"; task: TaskNode };
 
 const HEAD = ["SL", "Task", "Sub Task", "Assign To", "Priority", "Status", "Start Date", "End Date", "Progress", "Remarks"];
+// Fixed column widths (px): the grid is identical for every viewer, whatever controls their permissions enable.
+const WIDTHS = [48, 160, 170, 90, 76, 128, 92, 92, 90, 130, 120];
+const READ_ONLY = "Only the person it is assigned to or a project manager can change this";
 const day = (ts: string | null | undefined) => (ts ? fmt(ts, "M/d/yyyy") : "");
 
 /**
@@ -49,7 +52,8 @@ export function ProjectPlan(props: Props) {
         <div className="mb-3 flex justify-end"><Button size="sm" onClick={() => setDialog({ kind: "new" })}>New task</Button></div>
       ) : null}
       <div className="overflow-x-auto rounded-lg border border-line bg-panel">
-        <table className="w-full min-w-[1100px] border-collapse text-sm">
+        <table className="w-full min-w-[1196px] table-fixed border-collapse text-sm">
+          <colgroup>{WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
           <thead>
             <tr>
               <th colSpan={HEAD.length + 1} className="bg-steel-dark px-4 py-3 text-center font-semibold text-white">
@@ -59,7 +63,7 @@ export function ProjectPlan(props: Props) {
               </th>
             </tr>
             <tr className="bg-[#efeadf] text-ink">
-              {HEAD.map((h) => <th key={h} className="border border-line px-3 py-2 text-center font-semibold">{h}</th>)}
+              {HEAD.map((h) => <th key={h} className="border border-line px-2 py-2 text-center font-semibold">{h}</th>)}
               <th className="border border-line px-2 py-2"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
@@ -92,17 +96,20 @@ function PlanRow({ node: n, caps, meId, basePath, canCreate, onDialog }: Props &
   const openSubtasks = n.children.filter((x) => x.status !== "Completed").map((x) => ({ code: x.code, title: x.title }));
   // the database lets a member add a subtask only under a task they own or created
   const canAddSubtask = canCreate && (c?.manager || n.assigned_to === meId || n.created_by === meId);
-  const cell = "border border-line px-3 py-2.5 align-middle";
+  const cell = "border border-line px-2 py-2.5 align-middle break-words";
+  const canStatus = Boolean(c && c.statuses.some((s) => s !== "Completed"));
+  const canProgress = Boolean(c?.progress);
+  const canComplete = Boolean(c?.manager || c?.isAssignee);
 
   return (
     <tr aria-busy={pending || undefined} className={cn(done && "text-ink-soft")}>
-      <td className={cn(cell, "w-14 bg-steel-dark text-center font-semibold text-white")}>{slOf(n.code)}</td>
-      <td className={cn(cell, "min-w-56")}>
+      <td className={cn(cell, "bg-steel-dark text-center font-semibold text-white")}>{slOf(n.code)}</td>
+      <td className={cell}>
         <Link href={`${basePath}/${n.id}`} className="font-medium hover:text-steel hover:underline">{n.title}</Link>
         <div className="text-xs text-ink-faint">{n.code}</div>
         {n.is_red && !done ? <div className="mt-1"><RedReasons reasons={n.reasons} /></div> : null}
       </td>
-      <td className={cn(cell, "min-w-64")}>
+      <td className={cell}>
         {n.children.length ? (
           <ul className="space-y-1.5">
             {n.children.map((s) => <SubtaskLine key={s.id} s={s} c={caps[s.id]} parentAssignee={n.assigned_to} basePath={basePath} />)}
@@ -111,27 +118,32 @@ function PlanRow({ node: n, caps, meId, basePath, canCreate, onDialog }: Props &
       </td>
       <td className={cn(cell, "bg-[#efeadf] text-center")}>{n.assignee_name ?? "—"}</td>
       <td className={cn(cell, "text-center")}>{n.priority}</td>
-      <td className={cn(cell, "min-w-[9.5rem] text-center", done && "bg-[#dcebd2] text-ink")}>
-        {c && !done && c.statuses.some((s) => s !== "Completed") ? (
-          <select aria-label={`Status of ${n.code}`} value={n.status} disabled={pending} onChange={(e) => run(() => setStatus(n.id, e.target.value))}
-            className="h-8 w-full rounded-md border border-line bg-panel px-2 text-sm">
+      <td className={cn(cell, "text-center", done && "bg-[#dcebd2] text-ink")}>
+        {done ? n.status : (
+          <select aria-label={`Status of ${n.code}`} value={n.status} disabled={pending || !canStatus} title={canStatus ? undefined : READ_ONLY}
+            onChange={(e) => run(() => setStatus(n.id, e.target.value))}
+            className="h-8 w-full rounded-md border border-line bg-panel px-1.5 text-sm disabled:cursor-not-allowed disabled:bg-paper disabled:text-ink">
             <option>{n.status}</option>
-            {c.statuses.filter((s) => s !== "Completed").map((s) => <option key={s}>{s}</option>)}
+            {(c?.statuses ?? []).filter((s) => s !== "Completed").map((s) => <option key={s}>{s}</option>)}
           </select>
-        ) : n.status}
+        )}
       </td>
       <td className={cn(cell, "whitespace-nowrap text-center font-medium")}>{day(n.assigned_on)}</td>
       <td className={cn(cell, "whitespace-nowrap text-center font-medium", overdue && "text-signal-red")}
         title={overdue ? "Past the deadline" : undefined}>{day(done ? n.completed_on : n.effective_due_at)}</td>
       <td className={cn(cell, "text-center")}>
-        {c?.progress && !done ? (
-          <ProgressInput value={n.progress_pct ?? 0} disabled={pending} onCommit={(v) => run(() => setProgress(n.id, v))} label={n.code} />
+        {n.is_leaf && !done ? (
+          <span className="inline-block" title={canProgress ? undefined : READ_ONLY}>
+            <ProgressInput value={n.progress_pct ?? 0} disabled={pending || !canProgress} onCommit={(v) => run(() => setProgress(n.id, v))} label={n.code} />
+          </span>
         ) : pct(progress)}
       </td>
-      <td className={cn(cell, "min-w-40 text-ink-soft")}><span className="line-clamp-3 whitespace-pre-wrap">{n.description}</span></td>
-      <td className={cn(cell, "w-28")}>
+      <td className={cn(cell, "text-ink-soft")}><span className="line-clamp-3 whitespace-pre-wrap">{n.description}</span></td>
+      <td className={cell}>
         <div className="flex items-center justify-end gap-1">
-          {!done && (c?.manager || c?.isAssignee) ? <MarkDoneButton task={n} openSubtasks={openSubtasks} manager={Boolean(c?.manager)} parentPrompt={null} /> : null}
+          {done ? null : canComplete
+            ? <MarkDoneButton task={n} openSubtasks={openSubtasks} manager={Boolean(c?.manager)} parentPrompt={null} />
+            : <Button size="sm" variant="secondary" disabled title={READ_ONLY}>Mark Done</Button>}
           <DM.Root>
             <DM.Trigger aria-label={`Actions for ${n.code}`} className="rounded p-1.5 text-ink-soft hover:bg-steel-wash hover:text-steel"><MoreHorizontal size={18} /></DM.Trigger>
             <DM.Portal>
@@ -156,10 +168,11 @@ function PlanRow({ node: n, caps, meId, basePath, canCreate, onDialog }: Props &
   );
 }
 
-/** "a. Title" — plus owner (when not the task's owner), status and progress; the owner can change the status here. */
+/** "a. Title" — plus owner (when not the task's owner), status and progress; the status is editable for its owner and managers. */
 function SubtaskLine({ s, c, parentAssignee, basePath }: { s: TaskNode; c?: TaskCaps; parentAssignee: string; basePath: string }) {
   const { pending, run } = useAction();
   const done = s.status === "Completed";
+  const canStatus = Boolean(c && c.statuses.some((x) => x !== "Completed"));
   return (
     <li aria-busy={pending || undefined}>
       <Link href={`${basePath}/${s.id}`} className={cn("hover:text-steel hover:underline", done && "text-ink-soft line-through decoration-ink-faint")}>
@@ -167,13 +180,14 @@ function SubtaskLine({ s, c, parentAssignee, basePath }: { s: TaskNode; c?: Task
       </Link>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-soft">
         {s.assigned_to !== parentAssignee ? <span>{s.assignee_name}</span> : null}
-        {c && !done && c.statuses.some((x) => x !== "Completed") ? (
-          <select aria-label={`Status of ${s.code}`} value={s.status} disabled={pending} onChange={(e) => run(() => setStatus(s.id, e.target.value))}
-            className="h-6 rounded border border-line bg-panel px-1 text-xs">
+        {done ? <span>{s.status}</span> : (
+          <select aria-label={`Status of ${s.code}`} value={s.status} disabled={pending || !canStatus} title={canStatus ? undefined : READ_ONLY}
+            onChange={(e) => run(() => setStatus(s.id, e.target.value))}
+            className="h-6 rounded border border-line bg-panel px-1 text-xs disabled:cursor-not-allowed disabled:bg-paper disabled:text-ink-soft">
             <option>{s.status}</option>
-            {c.statuses.filter((x) => x !== "Completed").map((x) => <option key={x}>{x}</option>)}
+            {(c?.statuses ?? []).filter((x) => x !== "Completed").map((x) => <option key={x}>{x}</option>)}
           </select>
-        ) : <span>{s.status}</span>}
+        )}
         <span>{pct(s.progress_pct)}</span>
       </div>
     </li>

@@ -52,6 +52,10 @@ export type DailyRow = {
   dayNo: number | null;
   offDay: boolean;
   reportId: string | null;
+  /** author, lock and the raw values, for editing the row in place */
+  userId: string | null;
+  locked: boolean;
+  edit: { taskId: string | null; status: string | null; progress: number | null; nextTask: string } | null;
   mainTask: { label: string; sub: string | null; status: string | null }[];
   dailySubTask: string;
   assignedTo: string;

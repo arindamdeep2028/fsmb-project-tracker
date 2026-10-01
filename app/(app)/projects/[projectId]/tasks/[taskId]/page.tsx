@@ -67,7 +67,7 @@ export default async function TaskPage({ params }: { params: Promise<{ projectId
         ) : null}
 
         <Section title="Comments">
-          <CommentThread taskId={t.id} comments={d.comments} meId={s.userId} canComment={caps.comment || manages || s.memberProjectIds.includes(projectId)} isAdmin={s.isAdmin} />
+          <CommentThread taskId={t.id} comments={d.comments} meId={s.userId} canComment={caps.comment || manages} isAdmin={s.isAdmin} />
         </Section>
       </div>
 

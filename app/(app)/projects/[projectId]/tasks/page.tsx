@@ -2,9 +2,9 @@ import { projectContext } from "@/lib/auth/project-guard";
 import { getProjectTaskTree } from "@/lib/data/tasks";
 import { getMembers, getProjectEngineers } from "@/lib/data/projects";
 import { capsForTree } from "@/lib/auth/task-caps";
-import { TaskTree } from "@/components/tasks/task-tree";
+import { ProjectPlan } from "@/components/tasks/project-plan";
 
-/** Responsibilities: the full task tree with calculated progress, flags and row actions. */
+/** Responsibilities: the project plan (workbook Task list layout) with calculated progress and row actions. */
 export default async function ProjectTasksPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const { s, project, manages } = await projectContext(projectId);
@@ -15,7 +15,8 @@ export default async function ProjectTasksPage({ params }: { params: Promise<{ p
     : await getProjectEngineers(projectId);
   const isMember = s.memberProjectIds.includes(projectId);
   return (
-    <TaskTree nodes={nodes} caps={capsForTree(s, project, nodes)} projectId={projectId} meId={s.userId} assignees={assignees}
-      canCreate={(manages || isMember) && !project.archived} managerView={manages} basePath={`/projects/${projectId}/tasks`} />
+    <ProjectPlan nodes={nodes} caps={capsForTree(s, project, nodes)} projectId={projectId} meId={s.userId} assignees={assignees}
+      canCreate={(manages || isMember) && !project.archived} managerView={manages} basePath={`/projects/${projectId}/tasks`}
+      title={{ name: project.name, prepared: project.start_date ?? project.created_at }} />
   );
 }

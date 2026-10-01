@@ -3,6 +3,8 @@ import { z } from "zod";
 /** Zod schemas mirror the table checks, so the form and the Server Action reject the same things. */
 export const id = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Choose a value");
 const optText = (max: number) => z.string().max(max).optional().transform((v) => (v?.trim() ? v.trim() : null));
+/** For partial updates: a field that isn't sent stays undefined (not written); an empty one clears the column. */
+const patchText = (max: number) => z.string().max(max).optional().transform((v) => (v === undefined ? undefined : v.trim() ? v.trim() : null));
 
 export const taskStatus = z.enum(["Not started", "Plan submitted", "In progress", "Blocked", "Completed"]);
 export const priority = z.enum(["Important", "High", "Normal", "Low"]);
@@ -22,12 +24,12 @@ export type TaskCreate = z.input<typeof taskCreate>;
 
 export const taskPatch = z.object({
   title: z.string().trim().min(1).max(300).optional(),
-  description: optText(5000),
+  description: patchText(5000),
   priority: priority.optional(),
   assigned_to: id.optional(),
   contribution_pct: z.number().min(0).max(100).nullable().optional(),
   contribution_locked: z.boolean().optional(),
-  blocker_note: optText(1000),
+  blocker_note: patchText(1000),
   planned_due_local: z.string().optional(),
   status: taskStatus.optional(),
 });

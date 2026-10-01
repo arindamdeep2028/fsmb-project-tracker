@@ -58,8 +58,8 @@ select pg_temp.act_as('11111111-0000-0000-0000-000000000011');
 select is((select array_agg(code) from public.projects), array['P01'], 'Engineer sees only projects where they are a member');
 select is((select count(*)::int from public.tasks where project_id = 'aaaaaaaa-0000-0000-0000-000000000002'), 0,
           'Engineer cannot see tasks of an unrelated project');
-select is((select array_agg(code order by code) from public.tasks), array['P01-T01', 'P01-T02b'],
-          'Engineer sees only tasks assigned to or created by them');
+select is((select array_agg(code order by code) from public.tasks), array['P01-T01', 'P01-T02', 'P01-T02a', 'P01-T02b', 'P01-T03', 'P01-T04'],
+          'Engineer sees every task of their project (migration 21: the project plan)');
 select is((select count(*)::int from public.daily_reports where user_id <> auth.uid()), 1,
           'Engineer reads all members'' daily reports in their project');
 select is((select count(*)::int from public.profiles where id = '11111111-0000-0000-0000-000000000012'), 1,

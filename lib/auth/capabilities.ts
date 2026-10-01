@@ -19,6 +19,17 @@ export function canEditProjectStructure(s: Session, p: ProjectRef): boolean {
   // code, department, lead PM, archive: Department Head or Admin (projects trigger)
   return s.isAdmin || s.headedDepartmentIds.includes(p.department_id);
 }
+/**
+ * Project roles a person can hold (project_members trigger): Engineer for engineer / PM accounts, PM for
+ * PM / Department Head / Admin accounts. Only an Admin or the project's Department Head (`canAddPm`) adds,
+ * changes or removes PM members; a project PM manages engineer members.
+ */
+export function projectRolesFor(role: Enums<"user_role">, canAddPm: boolean): Enums<"project_member_role">[] {
+  return [
+    ...(role === "engineer" || role === "pm" ? ["engineer" as const] : []),
+    ...(role !== "engineer" && canAddPm ? ["pm" as const] : []),
+  ];
+}
 export function canExportCsv(s: Session): boolean {
   return s.isAdmin || s.headedDepartmentIds.length > 0 || s.pmProjectIds.length > 0;
 }

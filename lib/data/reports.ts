@@ -1,7 +1,8 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { BUCKET } from "@/lib/storage";
-import { dhakaToday } from "@/lib/time";
+import { dhakaToday, fmt } from "@/lib/time";
+import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow } from "@/lib/sheet";
 
 export async function listMyReports(userId: string, page = 0) {
   const supabase = await createClient();
@@ -27,11 +28,11 @@ export async function projectReportFeed(projectId: string, filters: { user?: str
 export async function getReport(id: string) {
   const supabase = await createClient();
   const { data: report } = await supabase.from("daily_reports")
-    .select("*, author:profiles!daily_reports_user_id_fkey(full_name), project:projects(id, code, name, department_id), next_task:tasks!daily_reports_next_task_id_fkey(code, title)")
+    .select("*, author:profiles!daily_reports_user_id_fkey(full_name), project:projects(id, code, name, department_id, start_date, created_at), next_task:tasks!daily_reports_next_task_id_fkey(code, title)")
     .eq("id", id).maybeSingle();
   if (!report) return null;
   const [items, files] = await Promise.all([
-    supabase.from("daily_report_items").select("*").eq("report_id", id).order("task_code"),
+    supabase.from("daily_report_items").select("*, parent:tasks!daily_report_items_parent_task_id_fkey(code, title)").eq("report_id", id).order("created_at"),
     supabase.from("daily_report_attachments").select("*").eq("report_id", id).order("uploaded_at"),
   ]);
   const attachments = files.data ?? [];
@@ -43,26 +44,78 @@ export async function getReport(id: string) {
   return { report, items: items.data ?? [], attachments: attachments.map((a) => ({ ...a, url: urls[a.storage_path] ?? null })) };
 }
 
-/** What the report form needs: member projects, my open tasks in the chosen project, and today's report if any. */
+/**
+ * What the daily update form needs: member projects, the project's start (for "Day N"), my open tasks and
+ * subtasks in the chosen project (each with its parent for the Main Task label) and today's update if any.
+ */
 export async function getReportFormData(userId: string, projectId?: string) {
   const supabase = await createClient();
   const { data: memberships } = await supabase.from("project_members")
-    .select("project:projects(id, code, name, archived)").eq("user_id", userId).is("removed_at", null);
+    .select("project:projects(id, code, name, archived, department_id, start_date, created_at)").eq("user_id", userId).is("removed_at", null);
   const projects = (memberships ?? []).map((m) => m.project).filter((p): p is NonNullable<typeof p> => Boolean(p && !p.archived))
     .sort((a, b) => a.code.localeCompare(b.code));
-  const pid = projectId && projects.some((p) => p.id === projectId) ? projectId : projects[0]?.id;
-  if (!pid) return { projects, projectId: null, tasks: [], existing: null };
-  const [tasks, existing] = await Promise.all([
-    supabase.from("tasks").select("id, code, title, parent_id, status, progress_pct")
-      .eq("project_id", pid).eq("assigned_to", userId).eq("archived", false).neq("status", "Completed").order("code"),
+  const project = projects.find((p) => p.id === projectId) ?? projects[0];
+  if (!project) return { projects, project: null, tasks: [], existing: null };
+  const [tasks, existing, leafRows] = await Promise.all([
+    supabase.from("tasks").select("id, project_id, code, title, parent_id, status, progress_pct, assigned_to, created_by, contribution_locked")
+      .eq("project_id", project.id).eq("assigned_to", userId).eq("archived", false).neq("status", "Completed").order("code"),
     supabase.from("daily_reports").select("*, daily_report_items(*), daily_report_attachments(*)")
-      .eq("user_id", userId).eq("project_id", pid).eq("report_date", dhakaToday()).maybeSingle(),
+      .eq("user_id", userId).eq("project_id", project.id).eq("report_date", dhakaToday()).maybeSingle(),
+    supabase.from("task_rollup").select("task_id, is_leaf").eq("project_id", project.id),
   ]);
-  const { data: leafRows } = await supabase.from("task_rollup").select("task_id, is_leaf").eq("project_id", pid);
-  const leaf = new Map((leafRows ?? []).map((r) => [r.task_id, r.is_leaf]));
+  const leaf = new Map((leafRows.data ?? []).map((r) => [r.task_id, r.is_leaf]));
+  const parentIds = [...new Set((tasks.data ?? []).map((t) => t.parent_id).filter((x): x is string => Boolean(x)))];
+  const { data: parents } = parentIds.length
+    ? await supabase.from("tasks").select("id, code, title").in("id", parentIds)
+    : { data: [] as { id: string; code: string; title: string }[] };
+  const parent = new Map((parents ?? []).map((p) => [p.id, p]));
   return {
-    projects, projectId: pid,
-    tasks: (tasks.data ?? []).map((t) => ({ ...t, is_leaf: leaf.get(t.id) ?? true })),
+    projects, project,
+    tasks: (tasks.data ?? []).map((t) => ({ ...t, is_leaf: leaf.get(t.id) ?? true, parent: t.parent_id ? parent.get(t.parent_id) ?? null : null })),
     existing: existing.data ?? null,
   };
+}
+
+/** Day 1 of a project's Daily Follow Up: its start date, or the Dhaka date it was created. */
+export function projectStart(p: { start_date: string | null; created_at: string }): string {
+  return p.start_date ?? fmt(p.created_at, "yyyy-MM-dd");
+}
+
+/**
+ * The project's Daily Follow Up for a date range: one row per person and date, plus an empty row for a date
+ * nobody (or not the chosen person) reported on. RLS decides which reports the viewer reads.
+ */
+export async function projectDailyLog(
+  project: { id: string; start_date: string | null; created_at: string },
+  opts: { from: string; to: string; user?: { id: string; name: string } | null; workdays?: number[] },
+): Promise<DailyRow[]> {
+  const start = projectStart(project);
+  const from = opts.from < start ? start : opts.from;           // the sheet starts at Day 1
+  if (from > opts.to) return [];
+  const supabase = await createClient();
+  let q = supabase.from("daily_reports")
+    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_code, task_title, status_after, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title))")
+    .eq("project_id", project.id).gte("report_date", from).lte("report_date", opts.to).order("submitted_at");
+  if (opts.user) q = q.eq("user_id", opts.user.id);
+  const { data } = await q;
+  const byDate = new Map<string, NonNullable<typeof data>>();
+  (data ?? []).forEach((r) => byDate.set(r.report_date, [...(byDate.get(r.report_date) ?? []), r]));
+  return dateRange(from, opts.to).flatMap((date): DailyRow[] => {
+    const base = { date, dayNo: projectDayNumber(start, date), offDay: isOffDay(date, opts.workdays) };
+    const reports = byDate.get(date) ?? [];
+    if (!reports.length) {
+      return [{ ...base, key: date, reportId: null, mainTask: [], dailySubTask: "", assignedTo: opts.user?.name ?? "", issues: "", nextTask: "", remarks: "" }];
+    }
+    return reports.map((r) => ({
+      ...base, key: r.id, reportId: r.id,
+      mainTask: [...(r.daily_report_items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at)).map((i) => (i.parent
+        ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
+        : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after })),
+      dailySubTask: r.update_text,
+      assignedTo: r.author?.full_name ?? "",
+      issues: r.issues ?? "",
+      nextTask: r.next_task ? taskLabel(r.next_task.code, r.next_task.title) : r.next_task_text ?? "",
+      remarks: r.remarks ?? "",
+    }));
+  });
 }

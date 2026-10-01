@@ -153,7 +153,7 @@ function Row({ node: n, parent, caps, meId, basePath, onDialog, collapsed, onTog
   );
 }
 
-function ProgressInput({ value, onCommit, disabled, label }: { value: number; onCommit: (v: number) => void; disabled?: boolean; label: string }) {
+export function ProgressInput({ value, onCommit, disabled, label }: { value: number; onCommit: (v: number) => void; disabled?: boolean; label: string }) {
   const [v, setV] = useState(String(value));
   const commit = () => {
     const n = Math.round(Number(v));
@@ -169,9 +169,9 @@ function ProgressInput({ value, onCommit, disabled, label }: { value: number; on
   );
 }
 
-function MenuItem({ children, onSelect, danger }: { children: React.ReactNode; onSelect: () => void; danger?: boolean }) {
+export function MenuItem({ children, onSelect, danger }: { children: React.ReactNode; onSelect: () => void; danger?: boolean }) {
   return <DM.Item onSelect={onSelect} className={cn("cursor-pointer rounded px-3 py-2 outline-none data-[highlighted]:bg-steel-wash", danger && "text-signal-red")}>{children}</DM.Item>;
 }
-function MenuLink({ href, children }: { href: string; children: React.ReactNode }) {
+export function MenuLink({ href, children }: { href: string; children: React.ReactNode }) {
   return <DM.Item asChild><Link href={href} className="block rounded px-3 py-2 outline-none data-[highlighted]:bg-steel-wash">{children}</Link></DM.Item>;
 }

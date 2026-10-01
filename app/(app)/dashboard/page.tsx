@@ -69,6 +69,10 @@ export default async function EngineerDashboard() {
                   </div>
                   <Meter value={p.project_completion_pct} label={`${p.code} completion`} />
                   <div className="mt-1 text-xs text-ink-soft">My share {pct(p.share_pct, 1)} · delivered {pct(p.delivered_pct, 1)} · {p.my_open_tasks} open</div>
+                  <div className="mt-1 flex gap-3 text-sm">
+                    <Link href={`/projects/${p.project_id}/tasks`} className="text-steel hover:underline">Tasks</Link>
+                    <Link href={`/daily-reports/new?project=${p.project_id}`} className="text-steel hover:underline">{p.report_submitted_today ? "Edit today's update" : "Daily update"}</Link>
+                  </div>
                 </li>
               ))}
             </ul>

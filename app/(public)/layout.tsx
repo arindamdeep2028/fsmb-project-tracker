@@ -4,7 +4,8 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <div className="hidden flex-col justify-between bg-graphite p-10 text-white md:flex">
         <div className="text-sm text-white/70">Frontier Semiconductor Bangladesh</div>
         <div>
-          <p className="max-w-[22ch] text-4xl font-semibold leading-tight">Every responsibility, every deadline, every day's work.</p>
+          <p className="max-w-[22ch] text-4xl font-semibold leading-tight">FSMB Project Management App</p>
+          <p className="mt-3 text-lg text-white/70">Projects. Responsibilities. Progress.</p>
           <div className="mt-8 flex gap-3" aria-hidden>
             <span className="h-1.5 w-16 rounded-full bg-signal-green" />
             <span className="h-1.5 w-10 rounded-full bg-signal-amber" />

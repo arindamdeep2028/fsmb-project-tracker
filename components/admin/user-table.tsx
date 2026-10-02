@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { inviteUser, sendResetLink, updateUser } from "@/lib/actions/admin";
+import { inviteUser, sendResetLink, setUserPassword, updateUser } from "@/lib/actions/admin";
 import { roleLabel } from "@/lib/labels";
 import { useAction, useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ type Role = Enums<"user_role">;
 type User = { id: string; full_name: string; login_name: string; email: string | null; role: Role; department_id: string | null; active: boolean; must_change_password: boolean; department: { name: string } | null };
 const ROLES: Role[] = ["engineer", "pm", "dept_head", "admin"];
 
-export function UserTable({ users, departments }: { users: User[]; departments: { id: string; name: string }[] }) {
+export function UserTable({ users, departments, meId }: { users: User[]; departments: { id: string; name: string }[]; meId: string }) {
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [filter, setFilter] = useState("");
@@ -44,7 +44,7 @@ export function UserTable({ users, departments }: { users: User[]; departments: 
         </tbody>
       </Table>
       {inviting ? <InviteDialog departments={departments} onClose={() => setInviting(false)} /> : null}
-      {editing ? <EditDialog user={editing} departments={departments} onClose={() => setEditing(null)} /> : null}
+      {editing ? <EditDialog user={editing} departments={departments} isMe={editing.id === meId} onClose={() => setEditing(null)} /> : null}
     </div>
   );
 }
@@ -89,7 +89,7 @@ function InviteDialog({ departments, onClose }: { departments: { id: string; nam
   );
 }
 
-function EditDialog({ user, departments, onClose }: { user: User; departments: { id: string; name: string }[]; onClose: () => void }) {
+function EditDialog({ user, departments, isMe, onClose }: { user: User; departments: { id: string; name: string }[]; isMe: boolean; onClose: () => void }) {
   const [v, setV] = useState({ full_name: user.full_name, login_name: user.login_name, role: user.role, department_id: user.department_id ?? "", active: user.active });
   const { pending, run } = useAction();
   return (
@@ -105,7 +105,56 @@ function EditDialog({ user, departments, onClose }: { user: User; departments: {
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.active} onChange={(e) => setV({ ...v, active: e.target.checked })} /> Account active (inactive people can't sign in)</label>
           <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" pending={pending}>Save user</Button></div>
         </form>
+        <ChangePassword user={user} isMe={isMe} />
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Change another user's password (Admin). Sent only to Supabase Auth through the auth-admin Edge Function;
+ * never shown again, and the admin's own password and session stay as they are.
+ */
+function ChangePassword({ user, isMe }: { user: User; isMe: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState({ password: "", confirm_password: "" });
+  const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
+  const [pending, setPending] = useState(false);
+  const toast = useToast();
+  if (isMe) {
+    return <p className="mt-5 border-t border-line pt-4 text-sm text-ink-soft">To change your own password, use Settings.</p>;
+  }
+  return (
+    <div className="mt-5 border-t border-line pt-4">
+      {!open ? (
+        <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)}>Change password</Button>
+      ) : (
+        <form className="space-y-4" onSubmit={async (e) => {
+          e.preventDefault();
+          if (v.password !== v.confirm_password) { setResult({ ok: false, message: "The two passwords don't match." }); return; }
+          setPending(true);
+          const r = await setUserPassword({ user_id: user.id, ...v });
+          setPending(false);
+          if (!r.ok) { setResult(r); return; }
+          toast({ ok: true, message: r.message });
+          setV({ password: "", confirm_password: "" }); setResult(null); setOpen(false);
+        }}>
+          <p className="text-sm font-medium">Change {user.full_name}&apos;s password</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="New password" htmlFor="p-new" hint="At least 10 characters.">
+              <Input id="p-new" type="password" value={v.password} onChange={(e) => setV({ ...v, password: e.target.value })} required minLength={10} maxLength={72} autoComplete="new-password" />
+            </Field>
+            <Field label="Confirm new password" htmlFor="p-confirm">
+              <Input id="p-confirm" type="password" value={v.confirm_password} onChange={(e) => setV({ ...v, confirm_password: e.target.value })} required minLength={10} maxLength={72} autoComplete="new-password" />
+            </Field>
+          </div>
+          <FormMessage result={result && !result.ok ? result : null} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => { setOpen(false); setV({ password: "", confirm_password: "" }); setResult(null); }}>Cancel</Button>
+            <Button type="submit" pending={pending}>Save new password</Button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

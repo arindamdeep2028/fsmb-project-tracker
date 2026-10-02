@@ -94,6 +94,14 @@ export const inviteInput = z.object({
 }).refine((v) => v.password === v.confirm_password, { message: "The two passwords don't match", path: ["confirm_password"] });
 export type InviteInput = z.input<typeof inviteInput>;
 
+/** Admin sets another user's password (sent only to Supabase Auth via auth-admin; never shown or stored). */
+export const setPasswordInput = z.object({
+  user_id: id,
+  password,
+  confirm_password: z.string(),
+}).refine((v) => v.password === v.confirm_password, { message: "The two passwords don't match", path: ["confirm_password"] });
+export type SetPasswordInput = z.input<typeof setPasswordInput>;
+
 export const settingsInput = z.object({
   office_start: z.number().int().min(0).max(23),
   office_end: z.number().int().min(1).max(24),

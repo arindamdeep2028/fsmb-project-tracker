@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { callEdge } from "@/lib/edge";
 import { type ActionResult, fail } from "@/lib/errors";
-import { firstIssue, inviteInput, settingsInput, type InviteInput } from "@/lib/validation";
+import { firstIssue, inviteInput, setPasswordInput, settingsInput, type InviteInput, type SetPasswordInput } from "@/lib/validation";
 import type { Enums, TablesUpdate } from "@/types/database";
 
 const refresh = () => revalidatePath("/", "layout");
@@ -22,6 +22,22 @@ export async function inviteUser(input: InviteInput): Promise<ActionResult<{ log
   refresh();
   const loginName = r.data.login_name ?? account.login_name;
   return { ok: true, message: `User created successfully. ${account.full_name} signs in with ${account.email}.`, data: { loginName } };
+}
+
+/**
+ * Admin: set ANOTHER user's password. It goes only to Supabase Auth, through the auth-admin Edge Function
+ * (service-role Admin Auth API, server side) — never client-side updateUser(), which would change the admin's
+ * own password. The admin's password and session are untouched; the password is never returned, logged or stored.
+ */
+export async function setUserPassword(input: SetPasswordInput): Promise<ActionResult> {
+  const p = setPasswordInput.safeParse(input);
+  if (!p.success) return { ok: false, message: firstIssue(p.error) };
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return { ok: false, message: "Sign in again to continue." };
+  if (auth.user.id === p.data.user_id) return { ok: false, message: "Change your own password in Settings." };
+  const r = await callEdge("auth-admin", { action: "set_password", user_id: p.data.user_id, password: p.data.password });
+  return r.ok ? { ok: true, message: "Password changed. Share it with them privately." } : { ok: false, message: r.message };
 }
 
 export async function sendResetLink(userId: string): Promise<ActionResult> {

@@ -6,12 +6,18 @@ import { listProjects } from "@/lib/data/projects";
 import { canManageProject } from "@/lib/auth/capabilities";
 import { Badge, EmptyState, PageHeader, Section, Table } from "@/components/ui/misc";
 import { LinkButton } from "@/components/ui/button";
-import { fmtDay } from "@/lib/time";
+import { fmtDate, fmtDay } from "@/lib/time";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Daily Reports" };
 
-export default async function DailyReportsPage() {
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/** My reports and team links. Dashboard figures open it with ?user=&from=&to= for one person's reports (RLS-limited). */
+export default async function DailyReportsPage({ searchParams }: { searchParams: Promise<{ user?: string; from?: string; to?: string }> }) {
   const s = await requireSession();
+  const sp = await searchParams;
+  if (sp.user && /^[0-9a-f-]{36}$/i.test(sp.user)) return <PersonReports user={sp.user} from={sp.from && ISO.test(sp.from) ? sp.from : undefined} to={sp.to && ISO.test(sp.to) ? sp.to : undefined} />;
   const [mine, projects] = await Promise.all([listMyReports(s.userId), listProjects()]);
   const managed = projects.filter((p) => canManageProject(s, p));
   return (
@@ -46,6 +52,43 @@ export default async function DailyReportsPage() {
           </Section>
         ) : null}
       </div>
+    </>
+  );
+}
+
+/** One person's daily reports in a window — only those in projects the viewer can see (reports RLS). */
+async function PersonReports({ user, from, to }: { user: string; from?: string; to?: string }) {
+  const supabase = await createClient();
+  let q = supabase.from("daily_reports")
+    .select("id, report_date, update_text, locked, project:projects(code, name), daily_report_items(count)")
+    .eq("user_id", user).order("report_date", { ascending: false }).limit(200);
+  if (from) q = q.gte("report_date", from);
+  if (to) q = q.lte("report_date", to);
+  const [{ data: rows }, { data: person }] = await Promise.all([q, supabase.from("profiles").select("full_name").eq("id", user).maybeSingle()]);
+  const reports = rows ?? [];
+  const tasks = reports.reduce((a, r) => a + (r.daily_report_items?.[0]?.count ?? 0), 0);
+  return (
+    <>
+      <PageHeader title={`Daily reports · ${person?.full_name ?? "this person"}`}
+        lead={<>{from || to ? `${fmtDate(from ?? null)} to ${fmtDate(to ?? null)} · ` : ""}<span data-testid="record-count">{reports.length} report{reports.length === 1 ? "" : "s"}</span>
+          {` covering ${tasks} task update${tasks === 1 ? "" : "s"}`} · only reports in projects you have access to are listed</>}
+        actions={<Link href="/daily-reports" className="text-sm text-steel hover:underline">Clear filter</Link>} />
+      {reports.length ? (
+        <Table className="rounded-lg border border-line bg-panel">
+          <thead><tr><th>Date</th><th>Project</th><th>Update</th><th>Tasks</th><th /></tr></thead>
+          <tbody>
+            {reports.map((r) => (
+              <tr key={r.id}>
+                <td className="whitespace-nowrap"><Link href={`/daily-reports/${r.id}`} className="font-medium hover:text-steel hover:underline">{fmtDay(r.report_date)}</Link></td>
+                <td>{r.project?.code}</td>
+                <td className="max-w-md truncate text-ink-soft">{r.update_text}</td>
+                <td>{r.daily_report_items?.[0]?.count ?? 0}</td>
+                <td>{r.locked ? <Badge signal="done">Locked</Badge> : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      ) : <EmptyState title="No daily reports in this window." />}
     </>
   );
 }

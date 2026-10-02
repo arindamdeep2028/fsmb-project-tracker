@@ -1,3 +1,4 @@
+import Link from "next/link";
 import * as React from "react";
 import { cn, pct } from "@/lib/utils";
 import type { Signal } from "@/lib/labels";
@@ -39,7 +40,9 @@ export function Kpi({ label, value, signal = "neutral", href }: { label: string;
     </>
   );
   const cls = "block rounded-lg border border-line bg-panel px-4 py-4";
-  return href ? <a href={href} className={cn(cls, "hover:border-steel")}>{body}</a> : <div className={cls}>{body}</div>;
+  if (!href) return <div className={cls}>{body}</div>;
+  // same-page sections (#…) use a plain anchor so the browser jumps; pages use client navigation
+  return href.startsWith("#") ? <a href={href} className={cn(cls, "hover:border-steel")}>{body}</a> : <Link href={href} className={cn(cls, "hover:border-steel")}>{body}</Link>;
 }
 
 export function Badge({ children, signal = "neutral", className }: { children: React.ReactNode; signal?: Signal; className?: string }) {
@@ -80,4 +83,14 @@ export function Table({ children, className }: { children: React.ReactNode; clas
       </table>
     </div>
   );
+}
+
+/**
+ * A dashboard figure that opens the records it counts. Same colour as before; a dotted underline says it's
+ * clickable. Nothing to open (0 or no value) → plain text, so no empty list is offered as if it had records.
+ */
+export function CountLink({ href, value, children, className, label }: { href: string; value: number | null | undefined; children?: React.ReactNode; className?: string; label?: string }) {
+  const body = children ?? value ?? 0;
+  if (!value) return <span className={className}>{body}</span>;
+  return <Link href={href} aria-label={label} className={cn("underline decoration-dotted underline-offset-4 hover:text-steel hover:decoration-solid", className)}>{body}</Link>;
 }

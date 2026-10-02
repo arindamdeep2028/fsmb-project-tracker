@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireSession } from "@/lib/auth/session";
 import { getMyDashboard } from "@/lib/data/dashboards";
-import { Kpi, Meter, PageHeader, Section } from "@/components/ui/misc";
+import { CountLink, Kpi, Meter, PageHeader, Section } from "@/components/ui/misc";
 import { TaskList } from "@/components/lists/task-list";
 import { ProgressTrend } from "@/components/data/charts";
 import { DeadlineChip } from "@/components/tasks/deadline";
@@ -17,6 +17,7 @@ export default async function EngineerDashboard() {
   const d = await getMyDashboard();
   const due = d.projects.filter((p) => p.report_expected_today && !p.report_submitted_today);
   const open = d.assigned_tasks.filter((t) => t.status !== "Completed");
+  const projectOf = new Map(d.assigned_tasks.map((t) => [t.task_id, t.project_id]));
   return (
     <>
       <PageHeader title={`Hello, ${s.profile.full_name.split(" ")[0]}`} lead={`${fmtDay(dhakaToday())}, Dhaka time`} />
@@ -35,8 +36,8 @@ export default async function EngineerDashboard() {
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Open tasks" value={open.length} href="/my-tasks" />
         <Kpi label="Red marks now" value={d.red_now} signal={d.red_now ? "red" : "neutral"} href="/my-tasks?filter=red" />
-        <Kpi label="Completed on time (window)" value={d.on_time} signal="green" />
-        <Kpi label="Completed late (window)" value={d.late} signal={d.late ? "amber" : "neutral"} />
+        <Kpi label="Completed on time (window)" value={d.on_time} signal="green" href={d.on_time ? "/my-tasks?filter=ontime&recent=1" : undefined} />
+        <Kpi label="Completed late (window)" value={d.late} signal={d.late ? "amber" : "neutral"} href={d.late ? "/my-tasks?filter=late&recent=1" : undefined} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -46,7 +47,9 @@ export default async function EngineerDashboard() {
               <ul className="divide-y divide-line-soft">
                 {d.deadlines.map((x) => (
                   <li key={x.task_id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                    <span><span className="mr-1.5 text-ink-soft">{x.code}</span>{x.title}<span className="ml-2 text-xs text-ink-soft">{x.project_code}</span></span>
+                    {projectOf.get(x.task_id) ? (
+                      <Link href={`/projects/${projectOf.get(x.task_id)}/tasks/${x.task_id}`} className="hover:text-steel hover:underline"><span className="mr-1.5 text-ink-soft">{x.code}</span>{x.title}<span className="ml-2 text-xs text-ink-soft">{x.project_code}</span></Link>
+                    ) : <span><span className="mr-1.5 text-ink-soft">{x.code}</span>{x.title}<span className="ml-2 text-xs text-ink-soft">{x.project_code}</span></span>}
                     <DeadlineChip due={x.effective_due_at} status={x.deadline_status} />
                   </li>
                 ))}
@@ -68,7 +71,7 @@ export default async function EngineerDashboard() {
                     <span className="text-sm text-ink-soft">{pct(p.project_completion_pct)}</span>
                   </div>
                   <Meter value={p.project_completion_pct} label={`${p.code} completion`} />
-                  <div className="mt-1 text-xs text-ink-soft">My share {pct(p.share_pct, 1)} · delivered {pct(p.delivered_pct, 1)} · {p.my_open_tasks} open</div>
+                  <div className="mt-1 text-xs text-ink-soft">My share {pct(p.share_pct, 1)} · delivered {pct(p.delivered_pct, 1)} · <CountLink href={`/projects/${p.project_id}/tasks?filter=open&user=${s.userId}`} value={p.my_open_tasks} label={`${p.code} my open tasks`}>{p.my_open_tasks} open</CountLink></div>
                   <div className="mt-1 flex gap-3 text-sm">
                     <Link href={`/projects/${p.project_id}/tasks`} className="text-steel hover:underline">Tasks</Link>
                     <Link href={`/daily-reports/new?project=${p.project_id}`} className="text-steel hover:underline">{p.report_submitted_today ? "Edit today's update" : "Daily update"}</Link>

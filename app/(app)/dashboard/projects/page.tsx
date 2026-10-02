@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireProjectManagerView } from "@/lib/auth/session";
 import { getMyProjectsDashboard } from "@/lib/data/dashboards";
-import { EmptyState, Kpi, PageHeader, Section, Table } from "@/components/ui/misc";
+import { CountLink, EmptyState, Kpi, PageHeader, Section, Table } from "@/components/ui/misc";
 import { ProjectHealthTable } from "@/components/dashboards/project-table";
 import { CompletionBars } from "@/components/data/charts";
-import { ago, dhakaHour, fmtDay } from "@/lib/time";
+import { ago, dhakaHour, dhakaToday, fmtDay } from "@/lib/time";
 import { pct } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "My Projects" };
@@ -17,15 +17,20 @@ export default async function PmDashboard() {
   const red = d.projects.reduce((a, p) => a + (p.red_tasks ?? 0), 0);
   const overdue = d.projects.reduce((a, p) => a + (p.overdue_tasks ?? 0), 0);
   const late = dhakaHour() >= 17;
+  // every figure opens its records; project ids by code for rows that carry only the code
+  const today = dhakaToday();
+  const idByCode = new Map(d.projects.map((p) => [p.code ?? "", p.project_id ?? ""]));
+  const projectOfTask = (code: string) => idByCode.get(code.replace(/-T\d+.*$/, ""));
+  const reportsToday = (pid: string | null | undefined, user: string) => `/projects/${pid}/daily-reports?user=${user}&from=${today}&to=${today}`;
   if (!d.projects.length) return (<><PageHeader title="My Projects" /><EmptyState title="No projects to manage yet">You'll see projects here once you're a PM on one.</EmptyState></>);
   return (
     <>
       <PageHeader title="My Projects" lead="Where work is slipping across the projects you manage." />
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Projects" value={d.projects.length} />
-        <Kpi label="Red tasks" value={red} signal={red ? "red" : "neutral"} />
-        <Kpi label="Overdue tasks" value={overdue} signal={overdue ? "red" : "neutral"} />
-        <Kpi label="Reports missing today" value={d.missing_reports.length} signal={d.missing_reports.length && late ? "amber" : "neutral"} />
+        <Kpi label="Projects" value={d.projects.length} href="/projects?managed=1" />
+        <Kpi label="Red tasks" value={red} signal={red ? "red" : "neutral"} href={red ? "/my-tasks?filter=red&managed=1" : undefined} />
+        <Kpi label="Overdue tasks" value={overdue} signal={overdue ? "red" : "neutral"} href={overdue ? "/my-tasks?filter=overdue&managed=1" : undefined} />
+        <Kpi label="Reports missing today" value={d.missing_reports.length} signal={d.missing_reports.length && late ? "amber" : "neutral"} href={d.missing_reports.length ? "#missing-reports" : undefined} />
       </div>
       <div className="space-y-6">
         <Section title="Project health"><ProjectHealthTable projects={d.projects} /></Section>
@@ -38,7 +43,8 @@ export default async function PmDashboard() {
               <ul className="divide-y divide-line-soft">
                 {d.blocked_tasks.map((t) => (
                   <li key={t.task_id} className="rail rail-amber py-2.5 pl-4">
-                    <span className="font-medium">{t.code}</span> {t.title}
+                    {projectOfTask(t.code) ? <Link href={`/projects/${projectOfTask(t.code)}/tasks/${t.task_id}`} className="hover:text-steel hover:underline"><span className="font-medium">{t.code}</span> {t.title}</Link>
+                      : <><span className="font-medium">{t.code}</span> {t.title}</>}
                     {t.blocker_note ? <p className="text-sm text-ink-soft">{t.blocker_note}</p> : null}
                   </li>
                 ))}
@@ -53,19 +59,23 @@ export default async function PmDashboard() {
               <tbody>
                 {d.team_load.map((m) => (
                   <tr key={`${m.project_id}-${m.user_id}`}>
-                    <td className="font-medium">{m.full_name}</td><td>{m.project_code}</td><td>{m.open_tasks}</td>
-                    <td className={m.red_tasks ? "font-semibold text-signal-red" : undefined}>{m.red_tasks}</td>
-                    <td>{pct(m.share_pct, 1)}</td><td>{pct(m.delivered_pct, 1)}</td><td>{m.reported_today ? "Yes" : "—"}</td>
+                    <td className="font-medium"><Link href={`/projects/${m.project_id}/tasks?user=${m.user_id}`} className="hover:text-steel hover:underline">{m.full_name}</Link></td>
+                    <td><Link href={`/projects/${m.project_id}`} className="hover:text-steel hover:underline">{m.project_code}</Link></td>
+                    <td><CountLink href={`/projects/${m.project_id}/tasks?filter=open&user=${m.user_id}`} value={m.open_tasks} label={`${m.full_name} ${m.project_code} open tasks`} /></td>
+                    <td className={m.red_tasks ? "font-semibold text-signal-red" : undefined}><CountLink href={`/projects/${m.project_id}/tasks?filter=red&user=${m.user_id}`} value={m.red_tasks} label={`${m.full_name} ${m.project_code} red tasks`} /></td>
+                    <td>{pct(m.share_pct, 1)}</td><td>{pct(m.delivered_pct, 1)}</td>
+                    <td>{m.reported_today ? <Link href={reportsToday(m.project_id, m.user_id ?? "")} className="underline decoration-dotted underline-offset-4 hover:text-steel">Yes</Link> : "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </Table>
           </Section>
-          <Section title="Missing reports today" aside={<span className="text-sm text-ink-soft">{late ? "After 17:00" : "Due by end of day"}</span>}>
+          <div id="missing-reports" className="scroll-mt-6"><Section title="Missing reports today" aside={<span className="text-sm text-ink-soft">{late ? "After 17:00" : "Due by end of day"}</span>}>
             {d.missing_reports.length ? (
-              <ul className="space-y-1.5">{d.missing_reports.map((m) => <li key={`${m.project_code}-${m.user_id}`} className={late ? "text-signal-amber" : undefined}><span className="font-medium">{m.full_name}</span> · {m.project_code}</li>)}</ul>
+              <ul className="space-y-1.5">{d.missing_reports.map((m) => <li key={`${m.project_code}-${m.user_id}`} className={late ? "text-signal-amber" : undefined}>
+                <Link href={reportsToday(idByCode.get(m.project_code), m.user_id)} className="hover:text-steel hover:underline"><span className="font-medium">{m.full_name}</span> · {m.project_code}</Link></li>)}</ul>
             ) : <p className="text-sm text-ink-soft">Everyone expected has reported, or today is a non-working day.</p>}
-          </Section>
+          </Section></div>
         </div>
         <Section title="Latest team updates">
           {d.team_updates.length ? (

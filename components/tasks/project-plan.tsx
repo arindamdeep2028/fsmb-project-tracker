@@ -27,6 +27,8 @@ type Props = {
   managerView: boolean;
   basePath: string; // /projects/{id}/tasks
   title: { name: string; prepared: string | null };
+  /** filtered view: tasks shown only because a subtask matches (greyed, not counted) */
+  context?: string[];
 };
 type DialogState = null | { kind: "new"; parent?: TaskNode } | { kind: "edit"; task: TaskNode } | { kind: "extend"; task: TaskNode };
 
@@ -87,7 +89,8 @@ export function ProjectPlan(props: Props) {
   );
 }
 
-function PlanRow({ node: n, caps, meId, basePath, canCreate, onDialog }: Props & { node: TaskNode; onDialog: (d: DialogState) => void }) {
+function PlanRow({ node: n, caps, meId, basePath, canCreate, onDialog, context }: Props & { node: TaskNode; onDialog: (d: DialogState) => void }) {
+  const onlyContext = Boolean(context?.includes(n.id));
   const c = caps[n.id];
   const { pending, run } = useAction();
   const done = n.status === "Completed";
@@ -102,11 +105,11 @@ function PlanRow({ node: n, caps, meId, basePath, canCreate, onDialog }: Props &
   const canComplete = Boolean(c?.manager || c?.isAssignee);
 
   return (
-    <tr aria-busy={pending || undefined} className={cn(done && "text-ink-soft")}>
+    <tr aria-busy={pending || undefined} className={cn(done && "text-ink-soft")} data-context={onlyContext || undefined}>
       <td className={cn(cell, "bg-steel-dark text-center font-semibold text-white")}>{slOf(n.code)}</td>
       <td className={cell}>
-        <Link href={`${basePath}/${n.id}`} className="font-medium hover:text-steel hover:underline">{n.title}</Link>
-        <div className="text-xs text-ink-faint">{n.code}</div>
+        <Link href={`${basePath}/${n.id}`} className={cn("font-medium hover:text-steel hover:underline", onlyContext && "text-ink-faint")}>{n.title}</Link>
+        <div className="text-xs text-ink-faint">{n.code}{onlyContext ? " · shown for its matching subtask" : ""}</div>
         {n.is_red && !done ? <div className="mt-1"><RedReasons reasons={n.reasons} /></div> : null}
       </td>
       <td className={cell}>

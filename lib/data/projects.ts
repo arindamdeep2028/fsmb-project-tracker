@@ -12,10 +12,10 @@ export const listProjects = cache(async () => {
     supabase.from("v_engineer_project_progress").select("project_id, project_completion_pct"),
   ]);
   if (projects.error) throw projects.error;
-  const completion = new Map<string, { completion: number | null; planned?: number | null; atRisk?: boolean | null; red?: number | null }>();
+  const completion = new Map<string, { completion: number | null; planned?: number | null; atRisk?: boolean | null; red?: number | null; managed?: boolean }>();
   (engineer.data ?? []).forEach((r) => r.project_id && completion.set(r.project_id, { completion: r.project_completion_pct }));
   (managed.data ?? []).forEach((r) => r.project_id && completion.set(r.project_id, {
-    completion: r.completion_pct, planned: r.planned_pct, atRisk: r.at_risk, red: r.red_tasks,
+    completion: r.completion_pct, planned: r.planned_pct, atRisk: r.at_risk, red: r.red_tasks, managed: true,
   }));
   return (projects.data ?? []).map((p) => ({ ...p, metrics: completion.get(p.id) ?? null }));
 });

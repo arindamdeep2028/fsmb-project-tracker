@@ -57,7 +57,7 @@ function InviteDialog({ departments, onClose }: { departments: { id: string; nam
   const toast = useToast();
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent title="Add a user" description="Share the password with them privately. They must choose their own password at first sign-in.">
+      <DialogContent persistent title="Add a user" description="Share the password with them privately. They must choose their own password at first sign-in.">
         <form className="space-y-4" onSubmit={async (e) => {
           e.preventDefault();
           if (v.password !== v.confirm_password) { setResult({ ok: false, message: "The two passwords don't match." }); return; }

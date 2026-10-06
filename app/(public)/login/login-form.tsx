@@ -5,14 +5,14 @@ import { signIn } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Field, FormMessage, Input } from "@/components/ui/form";
 
-export function LoginForm({ next, notice }: { next?: string; notice?: string }) {
+export function LoginForm({ next, notice, identifierLabel, emailOnly }: { next?: string; notice?: string; identifierLabel: string; emailOnly: boolean }) {
   const [state, action, pending] = useActionState(signIn, null);
   return (
     <form action={action} className="space-y-4">
       {notice && !state ? <FormMessage result={{ ok: false, message: notice }} /> : null}
       <input type="hidden" name="next" value={next ?? ""} />
-      <Field label="Email or login name" htmlFor="identifier">
-        <Input id="identifier" name="identifier" autoComplete="username" required autoFocus />
+      <Field label={identifierLabel} htmlFor="identifier">
+        <Input id="identifier" name="identifier" type={emailOnly ? "email" : "text"} autoComplete="username" required autoFocus />
       </Field>
       <Field label="Password" htmlFor="password">
         <Input id="password" name="password" type="password" autoComplete="current-password" required />

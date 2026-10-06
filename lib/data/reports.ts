@@ -49,6 +49,7 @@ export async function getReport(id: string) {
 /**
  * What the daily update form needs: member projects, the project's start (for "Day N"), my open tasks and
  * subtasks in the chosen project (each with its parent for the Main Task label) and today's update if any.
+ * A task today's update already lists is included even once it is Completed, so its entry stays in the form.
  */
 export async function getReportFormData(userId: string, projectId?: string) {
   const supabase = await createClient();
@@ -60,20 +61,22 @@ export async function getReportFormData(userId: string, projectId?: string) {
   if (!project) return { projects, project: null, tasks: [], existing: null };
   const [tasks, existing, leafRows] = await Promise.all([
     supabase.from("tasks").select("id, project_id, code, title, parent_id, status, progress_pct, assigned_to, created_by, contribution_locked")
-      .eq("project_id", project.id).eq("assigned_to", userId).eq("archived", false).neq("status", "Completed").order("code"),
+      .eq("project_id", project.id).eq("assigned_to", userId).eq("archived", false).order("code"),
     supabase.from("daily_reports").select("*, daily_report_items(*), daily_report_attachments(*)")
       .eq("user_id", userId).eq("project_id", project.id).eq("report_date", dhakaToday()).maybeSingle(),
     supabase.from("task_rollup").select("task_id, is_leaf").eq("project_id", project.id),
   ]);
   const leaf = new Map((leafRows.data ?? []).map((r) => [r.task_id, r.is_leaf]));
-  const parentIds = [...new Set((tasks.data ?? []).map((t) => t.parent_id).filter((x): x is string => Boolean(x)))];
+  const listed = new Set((existing.data?.daily_report_items ?? []).map((i) => i.task_id));
+  const mine = (tasks.data ?? []).filter((t) => t.status !== "Completed" || listed.has(t.id));
+  const parentIds = [...new Set(mine.map((t) => t.parent_id).filter((x): x is string => Boolean(x)))];
   const { data: parents } = parentIds.length
     ? await supabase.from("tasks").select("id, code, title").in("id", parentIds)
     : { data: [] as { id: string; code: string; title: string }[] };
   const parent = new Map((parents ?? []).map((p) => [p.id, p]));
   return {
     projects, project,
-    tasks: (tasks.data ?? []).map((t) => ({ ...t, is_leaf: leaf.get(t.id) ?? true, parent: t.parent_id ? parent.get(t.parent_id) ?? null : null })),
+    tasks: mine.map((t) => ({ ...t, is_leaf: leaf.get(t.id) ?? true, parent: t.parent_id ? parent.get(t.parent_id) ?? null : null })),
     existing: existing.data ?? null,
   };
 }

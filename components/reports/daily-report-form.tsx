@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form";
 import { useToast } from "@/components/toast";
 import { DailyHead, DayCells } from "@/components/reports/daily-log-table";
+import { reportItemChange } from "@/lib/report-items";
 import type { TaskStatus } from "@/lib/auth/capabilities";
 
 /** One of my open tasks / subtasks: label "4. Task" (+ "a. Subtask"), and the statuses I may move it to. */
-export type MainTaskOption = { id: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null };
+export type MainTaskOption = { id: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null; done: boolean };
 type Existing = {
   update_text: string; issues: string | null; next_task_text: string | null; remarks: string | null;
   daily_report_items: { task_id: string | null; progress_after: number | null; status_after: string | null }[];
@@ -32,6 +33,8 @@ type V = z.infer<typeof schema>;
 /**
  * Today's row of the Daily Reports sheet for one project (one per person, project and day; editable until it locks).
  * The Main Task is one of my open tasks or subtasks; its Status (and progress) is applied to the task as me.
+ * A task entry the update already has is kept on every save (also once the task is Completed); it is replaced
+ * or removed only when I choose a different Main Task or clear it. The page keys this form by project.
  */
 export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }: {
   projectId: string; date: string; dayNo: number | null; me: string; tasks: MainTaskOption[]; existing: Existing;
@@ -50,11 +53,13 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
     },
   });
   const [taskId, setTaskId] = useState(f.getValues("task_id"));
+  const [taskChanged, setTaskChanged] = useState(false);
   const task = tasks.find((t) => t.id === taskId);
 
   function pickTask(id: string) {
     const t = tasks.find((x) => x.id === id);
     setTaskId(id);
+    setTaskChanged(true);
     f.setValue("task_id", id);
     f.setValue("status", t?.status ?? "");
     f.setValue("progress", t ? String(t.progress_pct ?? 0) : "");
@@ -65,12 +70,7 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
     const r = await saveReport({
       project_id: projectId, update_text: v.update_text, issues: v.issues, next_task_id: null,
       next_task_text: v.next_task_text, remarks: v.remarks,
-      items: t ? [{
-        task_id: t.id,
-        status_after: (t.choices.includes(v.status as TaskStatus) ? v.status : t.status) as TaskStatus,
-        progress_after: t.is_leaf && v.progress !== "" ? Math.max(0, Math.min(100, Number(v.progress))) : null,
-        note: null,
-      }] : [],
+      ...reportItemChange({ priorTaskId: prior?.task_id ?? null, task: t, changed: taskChanged, status: v.status, progress: v.progress }),
     });
     setResult(r);
     if (r.ok && r.data) { toast({ ok: true, message: existing ? "Daily update saved" : "Daily update submitted" }); router.push(`/daily-reports/${r.data.id}`); }
@@ -97,7 +97,9 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
               </td>
               <td className={`${cell} whitespace-nowrap text-center align-middle`}>{me}</td>
               <td className={`${cell} w-40`}>
-                {task ? (
+                {task?.done ? (
+                  <p className="pt-1.5 text-center text-sm">Completed<span className="mt-1 block text-xs text-ink-soft">This task is done; its entry stays in the update.</span></p>
+                ) : task ? (
                   <>
                     <select aria-label="Status" className={box} {...f.register("status")}>
                       {[task.status, ...task.choices.filter((s) => s !== task.status)].map((s) => <option key={s}>{s}</option>)}

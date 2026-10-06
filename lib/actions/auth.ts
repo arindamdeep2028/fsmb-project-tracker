@@ -5,24 +5,34 @@ import { callEdge } from "@/lib/edge";
 import type { ActionResult } from "@/lib/errors";
 import { password } from "@/lib/validation";
 import { landingForRole } from "@/lib/auth/landing";
+import { emailForSignIn, loginNamesEnabled, signInCopy } from "@/lib/auth/sign-in";
 
-const GENERIC = "Email, login name or password is incorrect.";
-
-/** Sign in with an email or a login name (resolved by the resolve-login Edge Function). */
+/**
+ * Sign in with an email address, or with a login name when the server holds LOGIN_RESOLVER_SECRET (lib/auth/sign-in.ts).
+ * A login name is resolved by the resolve-login Edge Function, server to server with that secret; the email it
+ * returns is used only for the password check below and never reaches the browser. A wrong password, an unknown
+ * email and an unknown login name get the same answer.
+ */
 export async function signIn(_: ActionResult | null, form: FormData): Promise<ActionResult> {
   const identifier = String(form.get("identifier") ?? "").trim();
   const pw = String(form.get("password") ?? "");
   const next = String(form.get("next") ?? "");
-  if (!identifier || !pw) return { ok: false, message: "Enter your email or login name and your password." };
-  let email = identifier;
-  if (!identifier.includes("@")) {
-    const r = await callEdge<{ email: string | null }>("resolve-login", { login: identifier }, { asUser: false });
-    if (!r.ok || !r.data.email) return { ok: false, message: GENERIC };
-    email = r.data.email;
-  }
+  const secret = process.env.LOGIN_RESOLVER_SECRET;
+  const loginNames = loginNamesEnabled(secret);
+  const copy = signInCopy(loginNames);
+  if (!identifier || !pw) return { ok: false, message: loginNames ? "Enter your email or login name and your password." : "Enter your email address and your password." };
+  const who = await emailForSignIn(identifier, {
+    loginNames,
+    resolve: async (login) => {
+      const r = await callEdge<{ email: string | null }>("resolve-login", { login }, { asUser: false, headers: { "x-login-resolver-secret": secret ?? "" } });
+      return r.ok ? { ok: true, email: r.data.email ?? null } : { ok: false };
+    },
+  });
+  if ("message" in who) return { ok: false, message: who.message };
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pw });
-  if (error || !data.user) return { ok: false, message: GENERIC };
+  // an unknown login name still gets a password check (against an address that cannot exist), like a wrong password
+  const { data, error } = await supabase.auth.signInWithPassword({ email: "email" in who ? who.email : "unknown-login@invalid.invalid", password: pw });
+  if (error || !data.user || !("email" in who)) return { ok: false, message: copy.generic };
   const { data: profile } = await supabase.from("profiles").select("role, active, must_change_password").eq("id", data.user.id).maybeSingle();
   if (!profile?.active) {
     await supabase.auth.signOut();
@@ -60,10 +70,14 @@ export async function setNewPassword(_: ActionResult | null, form: FormData): Pr
   redirect(landingForRole(profile?.role));
 }
 
-/** First-time setup: allowed only while no active admin exists (checked inside auth-admin). */
+/**
+ * First-time setup: allowed only while no active admin exists and only with the setup code (the SETUP_TOKEN
+ * secret of the auth-admin Edge Function, which checks both). The code is passed on, never stored or logged.
+ */
 export async function setupFirstAdmin(_: ActionResult | null, form: FormData): Promise<ActionResult> {
   const body = {
     action: "setup",
+    setup_token: String(form.get("setup_token") ?? ""),
     full_name: String(form.get("full_name") ?? "").trim(),
     login_name: String(form.get("login_name") ?? "").trim().toLowerCase(),
     email: String(form.get("email") ?? "").trim(),
@@ -71,7 +85,7 @@ export async function setupFirstAdmin(_: ActionResult | null, form: FormData): P
   };
   const p = password.safeParse(body.password);
   if (!p.success) return { ok: false, message: p.error.issues[0].message };
-  if (!body.full_name || !body.login_name || !body.email.includes("@")) return { ok: false, message: "Fill in every field." };
+  if (!body.full_name || !body.login_name || !body.email.includes("@") || !body.setup_token) return { ok: false, message: "Fill in every field." };
   const r = await callEdge("auth-admin", body, { asUser: false });
   if (!r.ok) return { ok: false, message: r.message };
   return { ok: true, message: "Admin account created. Sign in to continue." };

@@ -30,6 +30,7 @@ export default async function NewReportPage({ searchParams }: { searchParams: Pr
     label: t.parent ? taskLabel(t.parent.code, t.parent.title) : taskLabel(t.code, t.title),
     sub: t.parent ? `${letterOf(t.code)}. ${t.title}` : null,
     status: t.status, choices: taskCaps(s, t, manages, t.is_leaf).statuses, is_leaf: t.is_leaf, progress_pct: t.progress_pct,
+    done: t.status === "Completed",
   }));
   const recent = await projectDailyLog(project, { from: daysAgo(13), to: today, user: { id: s.userId, name: s.profile.full_name }, workdays: settings?.workdays, order: reportOrder(s) });
   const locked = Boolean(d.existing?.locked);
@@ -48,7 +49,8 @@ export default async function NewReportPage({ searchParams }: { searchParams: Pr
       <div className="space-y-6">
         {locked ? <EmptyState title="Today's update is locked">Ask your admin to unlock it if something needs fixing.</EmptyState> : (
           <Section title={`${project.code} ${project.name}`}>
-            <DailyReportForm projectId={project.id} date={today} dayNo={projectDayNumber(projectStart(project), today)} me={s.profile.full_name}
+            {/* keyed by project: switching project starts a fresh form, so one project's draft is never sent to another */}
+            <DailyReportForm key={project.id} projectId={project.id} date={today} dayNo={projectDayNumber(projectStart(project), today)} me={s.profile.full_name}
               tasks={tasks} existing={d.existing} />
           </Section>
         )}

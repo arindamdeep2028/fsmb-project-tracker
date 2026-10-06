@@ -48,13 +48,15 @@ export default async function ProjectReportsPage({ params, searchParams }: {
   const all = tasks.data ?? [];
   const byId = new Map(all.map((t) => [t.id, t]));
   const leaf = new Map((leafRows.data ?? []).map((r) => [r.task_id, r.is_leaf]));
+  // open tasks, plus a task a shown row already lists (it stays in the row's editor once Completed)
+  const listed = new Set(rows.map((r) => r.edit?.taskId).filter(Boolean));
   const rowTasks: RowTask[] = all
-    .filter((t) => t.status !== "Completed" && people.some((p) => p.id === t.assigned_to))
+    .filter((t) => (t.status !== "Completed" || listed.has(t.id)) && people.some((p) => p.id === t.assigned_to))
     .map((t) => {
       const parent = t.parent_id ? byId.get(t.parent_id) : undefined;
       const isLeaf = leaf.get(t.id) ?? true;
       return {
-        id: t.id, assigned_to: t.assigned_to, status: t.status, is_leaf: isLeaf, progress_pct: t.progress_pct,
+        id: t.id, assigned_to: t.assigned_to, status: t.status, is_leaf: isLeaf, progress_pct: t.progress_pct, done: t.status === "Completed",
         label: parent ? taskLabel(parent.code, parent.title) : taskLabel(t.code, t.title),
         sub: parent ? `${letterOf(t.code)}. ${t.title}` : null,
         choices: taskCaps(s, t, manages, isLeaf).statuses,

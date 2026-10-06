@@ -10,6 +10,7 @@ export function SetupForm() {
   if (state?.ok) return (<div className="space-y-4"><FormMessage result={state} /><Link href="/login" className="font-medium text-steel hover:underline">Sign in</Link></div>);
   return (
     <form action={action} className="space-y-4">
+      <Field label="Setup code" htmlFor="setup_token" hint="From whoever installed the system (the SETUP_TOKEN secret)."><Input id="setup_token" name="setup_token" type="password" autoComplete="off" required /></Field>
       <Field label="Full name" htmlFor="full_name"><Input id="full_name" name="full_name" required /></Field>
       <Field label="Login name" htmlFor="login_name" hint="Lower case, used to sign in."><Input id="login_name" name="login_name" required pattern="[a-zA-Z0-9._-]+" /></Field>
       <Field label="Email" htmlFor="email"><Input id="email" name="email" type="email" required /></Field>

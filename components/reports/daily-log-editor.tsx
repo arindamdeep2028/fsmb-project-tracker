@@ -5,14 +5,16 @@ import { Plus } from "lucide-react";
 import { saveDailyRow } from "@/lib/actions/reports";
 import { DAILY_HEAD, projectDayNumber, sheetDate, weekday, type DailyRow, type ReportOrder } from "@/lib/sheet";
 import type { TaskStatus } from "@/lib/auth/capabilities";
+import { reportItemChange } from "@/lib/report-items";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast";
 import { DailyLogTable } from "./daily-log-table";
 
 /** An open task or subtask someone can name as the Main Task of their row. */
-export type RowTask = { id: string; assigned_to: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null };
+export type RowTask = { id: string; assigned_to: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null; done: boolean };
 type Person = { id: string; name: string };
-type Draft = { key: string | null; date: string; userId: string; taskId: string; text: string; status: string; progress: string; issues: string; next: string; remarks: string };
+/** `priorTaskId`: the task entry the saved row already has; `taskChanged`: the user picked another Main Task or cleared it. */
+type Draft = { key: string | null; date: string; userId: string; taskId: string; priorTaskId: string | null; taskChanged: boolean; text: string; status: string; progress: string; issues: string; next: string; remarks: string };
 
 /**
  * The project's Daily Reports sheet with "Add Daily Update": the same table for every viewer, plus an editable row.
@@ -33,7 +35,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
   const router = useRouter();
   const toast = useToast();
   const saved = (date: string, userId: string) => rows.find((r) => r.reportId && r.date === date && r.userId === userId);
-  const empty = (date: string, userId: string): Draft => ({ key: null, date, userId, taskId: "", text: "", status: "", progress: "", issues: "", next: "", remarks: "" });
+  const empty = (date: string, userId: string): Draft => ({ key: null, date, userId, taskId: "", priorTaskId: null, taskChanged: false, text: "", status: "", progress: "", issues: "", next: "", remarks: "" });
   const [draft, setDraft] = useState<Draft | null>(() => (fill && isAdmin && !saved(fill.date, fill.userId) ? empty(fill.date, fill.userId) : null));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -42,7 +44,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
   const fromRow = (r: DailyRow): Draft => {
     const t = tasks.find((x) => x.id === r.edit?.taskId);
     return {
-      key: r.key, date: r.date, userId: r.userId ?? meId, taskId: t ? t.id : "", text: r.dailySubTask,
+      key: r.key, date: r.date, userId: r.userId ?? meId, taskId: t ? t.id : "", priorTaskId: r.edit?.taskId ?? null, taskChanged: false, text: r.dailySubTask,
       status: r.edit?.status ?? t?.status ?? "", progress: String(r.edit?.progress ?? t?.progress_pct ?? ""),
       issues: r.issues, next: r.edit?.nextTask ?? r.nextTask, remarks: r.remarks,
     };
@@ -62,13 +64,14 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
   async function save() {
     if (!draft) return;
     const t = tasks.find((x) => x.id === draft.taskId);
+    // the row keeps the task entry it has unless the Main Task was changed or cleared in this edit
+    const change = reportItemChange({ priorTaskId: draft.priorTaskId, task: t, changed: draft.taskChanged, status: draft.status, progress: draft.progress });
     setSaving(true);
     const r = await saveDailyRow({
       report_id: draft.key ? rows.find((x) => x.key === draft.key)?.reportId ?? null : null,
-      project_id: projectId, user_id: draft.userId, report_date: draft.date, task_id: t?.id ?? null, update_text: draft.text,
-      status: t ? ((t.choices.includes(draft.status as TaskStatus) ? draft.status : t.status) as TaskStatus) : null,
-      progress: t?.is_leaf && draft.progress !== "" ? Math.max(0, Math.min(100, Number(draft.progress))) : null,
-      issues: draft.issues, next_task_text: draft.next, remarks: draft.remarks,
+      project_id: projectId, user_id: draft.userId, report_date: draft.date, update_text: draft.text,
+      task_id: change.items[0]?.task_id ?? null, status: change.items[0]?.status_after ?? null, progress: change.items[0]?.progress_after ?? null,
+      issues: draft.issues, next_task_text: draft.next, remarks: draft.remarks, remove_task_ids: change.remove_task_ids,
     });
     setSaving(false);
     if (!r.ok) { setError(r.message ?? "Couldn't save the row."); return; }
@@ -80,7 +83,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
   }
 
   const editor = (d: Draft) => {
-    const mine = tasks.filter((t) => t.assigned_to === d.userId);
+    const mine = tasks.filter((t) => t.assigned_to === d.userId && (!t.done || t.id === d.priorTaskId));
     const task = mine.find((t) => t.id === d.taskId);
     const set = (patch: Partial<Draft>) => setDraft({ ...d, ...patch });
     const box = "w-full rounded-md border border-line bg-panel px-1.5 py-1 text-xs text-ink";
@@ -98,7 +101,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
         <td className={`${cell} text-center whitespace-nowrap align-middle`}>{d.date ? weekday(d.date) : ""}</td>
         <td className={cell}>
           <select aria-label="Main Task" className={box} value={d.taskId}
-            onChange={(e) => { const t = mine.find((x) => x.id === e.target.value); set({ taskId: e.target.value, status: t?.status ?? "", progress: t ? String(t.progress_pct ?? 0) : "" }); }}>
+            onChange={(e) => { const t = mine.find((x) => x.id === e.target.value); set({ taskId: e.target.value, taskChanged: true, status: t?.status ?? "", progress: t ? String(t.progress_pct ?? 0) : "" }); }}>
             <option value="">{mine.length ? "Choose a task" : "No open task assigned"}</option>
             {mine.map((t) => <option key={t.id} value={t.id}>{t.sub ? `${t.label} — ${t.sub}` : t.label}</option>)}
           </select>
@@ -112,7 +115,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
           ) : <span className="block pt-1.5">{people.find((p) => p.id === d.userId)?.name ?? rows.find((r) => r.key === d.key)?.assignedTo}</span>}
         </td>
         <td className={cell}>
-          {task ? (
+          {task?.done ? <span className="block pt-1.5 text-center">Completed</span> : task ? (
             <>
               <select aria-label="Status" className={box} value={d.status || task.status} onChange={(e) => set({ status: e.target.value })}>
                 {[task.status, ...task.choices.filter((s) => s !== task.status)].map((s) => <option key={s}>{s}</option>)}

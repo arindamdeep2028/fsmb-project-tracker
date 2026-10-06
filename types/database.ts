@@ -1364,6 +1364,7 @@ export type Database = {
       project_performance: { Args: { p_project: string; p_from?: string; p_to?: string }; Returns: { user_id: string; full_name: string; member_role: Database["public"]["Enums"]["project_member_role"]; assigned: number; completed: number; late: number; on_time_pct: number; red_events: number; daily_updates: number; score: number }[] }
       project_progress: { Args: { p_project: string }; Returns: Json }
       save_daily_report: { Args: { p: Json }; Returns: string }
+      save_daily_row: { Args: { p: Json }; Returns: string }
       set_task_deadline: { Args: { p_task: string; p_due: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
     }
     Enums: {

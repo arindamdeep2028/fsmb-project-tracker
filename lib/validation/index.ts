@@ -49,6 +49,8 @@ export const reportInput = z.object({
   next_task_text: z.string().max(1000).optional().nullable(),
   remarks: z.string().max(3000).optional().nullable(),
   items: z.array(reportItem).default([]),
+  /** task entries the user removed on purpose (changed or cleared the Main Task); nothing else is ever removed */
+  remove_task_ids: z.array(id).default([]),
 });
 export type ReportInput = z.input<typeof reportInput>;
 
@@ -66,6 +68,7 @@ export const dailyRowInput = z.object({
   issues: z.string().max(3000),
   next_task_text: z.string().max(1000),
   remarks: z.string().max(3000),
+  remove_task_ids: z.array(id).default([]),
 });
 export type DailyRowInput = z.input<typeof dailyRowInput>;
 

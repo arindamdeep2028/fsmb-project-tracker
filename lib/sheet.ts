@@ -30,6 +30,15 @@ export function projectDayNumber(start: string | null | undefined, date: string)
   return n >= 1 ? n : null;
 }
 
+/**
+ * The dates a new Daily Update row may be given: an Admin any day from the project's Day 1 to today, everyone
+ * else today only. `fixed`: there is just one such date, so there is nothing to pick.
+ */
+export function rowDateChoice(isAdmin: boolean, start: string, today: string): { min: string; max: string; fixed: boolean } {
+  const min = isAdmin && start < today ? start : today;
+  return { min, max: today, fixed: min === today };
+}
+
 /** "25-Sep-26" */
 export const sheetDate = (d: string) => format(parseISO(d), "d-MMM-yy");
 /** "Friday" */

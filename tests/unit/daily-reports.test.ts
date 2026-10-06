@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAILY_HEAD, dailyCsvLine, type DailyRow } from "@/lib/sheet";
+import { DAILY_HEAD, dailyCsvLine, rowDateChoice, type DailyRow } from "@/lib/sheet";
 import { reportOrder } from "@/lib/auth/capabilities";
 import { overdueReports, overdueWindowStart, type OverdueInput } from "@/lib/overdue";
 import { dailyRowInput } from "@/lib/validation";
@@ -109,5 +109,18 @@ describe("daily row input", () => {
     expect(dailyRowInput.parse(row).report_id ?? null).toBeNull();
     expect(dailyRowInput.parse({ ...row, report_id: "33333333-3333-4333-8333-333333333333" }).report_id).toBe("33333333-3333-4333-8333-333333333333");
     expect(dailyRowInput.safeParse({ ...row, report_id: "not-an-id" }).success).toBe(false);
+  });
+});
+
+describe("the dates a new Daily Update row may be given", () => {
+  it("an Admin picks any day from the project's Day 1 to today", () => {
+    expect(rowDateChoice(true, "2026-10-01", "2026-10-06")).toEqual({ min: "2026-10-01", max: "2026-10-06", fixed: false });
+  });
+  it("an Admin has nothing to pick when Day 1 is today or later", () => {
+    expect(rowDateChoice(true, "2026-10-06", "2026-10-06")).toEqual({ min: "2026-10-06", max: "2026-10-06", fixed: true });
+    expect(rowDateChoice(true, "2026-10-09", "2026-10-06")).toEqual({ min: "2026-10-06", max: "2026-10-06", fixed: true });
+  });
+  it("everyone else writes today's row only", () => {
+    expect(rowDateChoice(false, "2026-10-01", "2026-10-06")).toEqual({ min: "2026-10-06", max: "2026-10-06", fixed: true });
   });
 });

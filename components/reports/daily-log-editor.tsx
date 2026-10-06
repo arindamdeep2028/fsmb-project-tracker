@@ -3,7 +3,7 @@ import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { saveDailyRow } from "@/lib/actions/reports";
-import { DAILY_HEAD, projectDayNumber, sheetDate, weekday, type DailyRow, type ReportOrder } from "@/lib/sheet";
+import { DAILY_HEAD, projectDayNumber, rowDateChoice, sheetDate, weekday, type DailyRow, type ReportOrder } from "@/lib/sheet";
 import type { TaskStatus } from "@/lib/auth/capabilities";
 import { reportItemChange } from "@/lib/report-items";
 import { Button } from "@/components/ui/button";
@@ -89,14 +89,23 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
     const box = "w-full rounded-md border border-line bg-panel px-1.5 py-1 text-xs text-ink";
     const cell = "border border-line p-1 align-top bg-steel-wash/60";
     const dayNo = d.date ? projectDayNumber(start, d.date) : null;
+    const choice = rowDateChoice(isAdmin, start, today);
     return [
       <tr key="editor" data-testid="daily-row-editor">
         <td className={`${cell} text-center whitespace-nowrap align-middle`}>{dayNo ? `Day ${dayNo}` : "—"}</td>
         <td className={cell}>
-          <input type="date" aria-label="Date" className={box} value={d.date} min={isAdmin ? start : today} max={today} disabled={Boolean(d.key)}
-            title={isAdmin ? undefined : "You add your own row for today; earlier days are locked"}
+          {/* the calendar ignores clicks on days outside min–max, so it is offered only when there is a day to choose and the range is spelled out */}
+          <input type="date" aria-label="Date" aria-describedby={d.key ? undefined : "daily-row-date-hint"} className={box} value={d.date}
+            min={choice.min} max={choice.max} disabled={Boolean(d.key) || choice.fixed}
             onChange={(e) => e.target.value && setDraft(blank(e.target.value, d.userId))} />
           {d.date ? <span className="mt-1 block text-center text-xs text-ink-soft">{sheetDate(d.date)}</span> : null}
+          {d.key ? null : (
+            <span id="daily-row-date-hint" data-testid="daily-row-date-hint" className="mt-1 block text-center text-xs text-ink-soft">
+              {!choice.fixed ? `Pick any day from ${sheetDate(choice.min)} (Day 1) to ${sheetDate(choice.max)} (today). Other days can't be clicked.`
+                : isAdmin ? "Only today can be chosen: the project's Day 1 is today or later. Set an earlier project start date to add earlier days."
+                : "You add your own row for today; earlier days are locked."}
+            </span>
+          )}
         </td>
         <td className={`${cell} text-center whitespace-nowrap align-middle`}>{d.date ? weekday(d.date) : ""}</td>
         <td className={cell}>

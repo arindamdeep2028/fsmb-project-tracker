@@ -6,7 +6,7 @@ const ADMIN = "11111111-0000-4000-8000-000000000001", ENGINEER = "11111111-0000-
 
 /** A system with one active admin and one engineer; every write is a spy. */
 function deps(over: Partial<AuthAdminDeps> = {}): AuthAdminDeps {
-  const people: Record<string, { role: string; active: boolean; email: string | null; login_name: string | null }> = {
+  const people: Record<string, { role: string; active: boolean; email: string | null; login_name: string | null; must_change_password?: boolean }> = {
     [ADMIN]: { role: "admin", active: true, email: "admin@example.test", login_name: "admin" },
     [ENGINEER]: { role: "engineer", active: true, email: "eng@example.test", login_name: "eng" },
     [OTHER]: { role: "engineer", active: true, email: "other@example.test", login_name: "other" },
@@ -19,6 +19,8 @@ function deps(over: Partial<AuthAdminDeps> = {}): AuthAdminDeps {
     profile: vi.fn(async (id: string) => people[id] ?? null),
     loginNameTaken: vi.fn(async () => false),
     setPassword: vi.fn(async () => null),
+    requirePasswordChange: vi.fn(async () => null),
+    setBanned: vi.fn(async () => null),
     logPasswordChange: vi.fn(async () => {}),
     sendResetLink: vi.fn(async () => null),
     temporaryPassword: () => "Temp-Password-1234!7",
@@ -129,6 +131,39 @@ describe("auth-admin user management stays Admin-only", () => {
     expect(d.logPasswordChange).toHaveBeenCalledWith(OTHER, ADMIN);
     expect((await handleAuthAdmin(post({ action: "set_password", user_id: ADMIN, password: "a-long-password" }, "Bearer admin"), d)).status).toBe(400);
     expect(d.setPassword).toHaveBeenCalledTimes(1);
+  });
+  it("SEC-5: a password set by an Admin is temporary — the account is marked 'must change password'", async () => {
+    const d = deps();
+    expect((await handleAuthAdmin(post({ action: "set_password", user_id: OTHER, password: "a-long-password" }, "Bearer admin"), d)).status).toBe(200);
+    expect(d.requirePasswordChange).toHaveBeenCalledWith(OTHER);
+    const failing = deps({ requirePasswordChange: vi.fn(async () => "update failed") });
+    const r = await handleAuthAdmin(post({ action: "set_password", user_id: OTHER, password: "a-long-password" }, "Bearer admin"), failing);
+    expect(r.status).toBe(500);                                   // never reported as a clean success
+    expect(failing.logPasswordChange).toHaveBeenCalled();
+  });
+  it("SEC-5: an Admin who must change their own password first cannot use admin actions", async () => {
+    const d = deps({ profile: vi.fn(async () => ({ role: "admin", active: true, email: null, login_name: null, must_change_password: true })) });
+    expect((await handleAuthAdmin(post(invite, "Bearer admin"), d)).status).toBe(403);
+    expect(d.createUser).not.toHaveBeenCalled();
+  });
+  it("SEC-6: sync_access bans the Auth account of a deactivated user and lifts the ban on reactivation", async () => {
+    const inactive = deps();
+    (inactive.profile as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => (id === ADMIN ? { role: "admin", active: true, email: null, login_name: null } : { role: "engineer", active: false, email: null, login_name: null }));
+    expect(await handleAuthAdmin(post({ action: "sync_access", user_id: OTHER }, "Bearer admin"), inactive)).toEqual({ status: 200, body: { ok: true, banned: true } });
+    expect(inactive.setBanned).toHaveBeenCalledWith(OTHER, true);
+    const active = deps();
+    expect((await handleAuthAdmin(post({ action: "sync_access", user_id: OTHER }, "Bearer admin"), active)).body).toEqual({ ok: true, banned: false });
+    expect(active.setBanned).toHaveBeenCalledWith(OTHER, false);
+  });
+  it("SEC-6: sync_access is Admin-only, never on oneself, and reports a failure", async () => {
+    const d = deps();
+    expect((await handleAuthAdmin(post({ action: "sync_access", user_id: OTHER }), d)).status).toBe(401);
+    expect((await handleAuthAdmin(post({ action: "sync_access", user_id: OTHER }, "Bearer engineer"), d)).status).toBe(403);
+    expect((await handleAuthAdmin(post({ action: "sync_access", user_id: ADMIN }, "Bearer admin"), d)).status).toBe(400);
+    expect((await handleAuthAdmin(post({ action: "sync_access", user_id: "22222222-0000-4000-8000-00000000dead" }, "Bearer admin"), d)).status).toBe(404);
+    expect(d.setBanned).not.toHaveBeenCalled();
+    const failing = deps({ setBanned: vi.fn(async () => "auth service unavailable") });
+    expect((await handleAuthAdmin(post({ action: "sync_access", user_id: OTHER }, "Bearer admin"), failing)).status).toBe(502);
   });
   it("rejects other methods and malformed bodies", async () => {
     expect((await handleAuthAdmin({ method: "GET", authHeader: null, body: null }, deps())).status).toBe(405);

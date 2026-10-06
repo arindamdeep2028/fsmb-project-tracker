@@ -4,8 +4,11 @@
 // Rules this file guarantees:
 //   - "setup" (first admin) is refused unless the function secret SETUP_TOKEN is configured AND the caller sends
 //     it AND the database positively reports zero active admins. A failed count is never read as "no admin".
-//   - Every other action needs a signed-in caller whose profile, read from the database, is an active admin.
-//     A failed profile read is a refusal.
+//   - Every other action needs a signed-in caller whose profile, read from the database, is an active admin
+//     who is not themselves waiting for a forced password change. A failed profile read is a refusal.
+//   - A password an admin sets for someone is temporary: that person must replace it at their next sign-in.
+//   - sync_access makes the Auth account follow the profile: a deactivated person can no longer sign in or
+//     refresh a session; reactivating lifts that.
 
 export type Result = { status: number; body: Record<string, unknown> };
 
@@ -18,9 +21,13 @@ export type AuthAdminDeps = {
   /** id of the user the Authorization header belongs to, or null */
   callerId(authHeader: string): Promise<string | null>;
   /** role, status, email and login name of a profile, or null; MUST throw when the query fails */
-  profile(id: string): Promise<{ role: string; active: boolean; email: string | null; login_name: string | null } | null>;
+  profile(id: string): Promise<{ role: string; active: boolean; email: string | null; login_name: string | null; must_change_password?: boolean } | null>;
   loginNameTaken(loginName: string): Promise<boolean>;
   setPassword(userId: string, password: string): Promise<string | null>;
+  /** marks the account as needing a password change at next sign-in; returns an error message or null */
+  requirePasswordChange(userId: string): Promise<string | null>;
+  /** blocks (true) or unblocks (false) the Auth account itself; returns an error message or null */
+  setBanned(userId: string, banned: boolean): Promise<string | null>;
   logPasswordChange(userId: string, actorId: string): Promise<void>;
   sendResetLink(authHeader: string, email: string, redirectTo: string | undefined): Promise<string | null>;
   temporaryPassword(): string;
@@ -72,7 +79,7 @@ export async function handleAuthAdmin(req: { method: string; authHeader: string 
   const callerId = await deps.callerId(req.authHeader).catch(() => null);
   if (!callerId) return res(401, { message: "Sign in first." });
   const caller = await deps.profile(callerId).catch(() => null);
-  if (caller?.role !== "admin" || caller.active !== true) return res(403, { message: "You don't have permission to do that." });
+  if (caller?.role !== "admin" || caller.active !== true || caller.must_change_password === true) return res(403, { message: "You don't have permission to do that." });
 
   // Creates the Auth user; the on_auth_user_created trigger builds the profile from the metadata.
   // Password: the admin's choice, or a generated one (returned once) when none is given.
@@ -102,8 +109,20 @@ export async function handleAuthAdmin(req: { method: string; authHeader: string 
     if (!target) return res(404, { message: "That user doesn't exist." });
     const error = await deps.setPassword(userId, password);
     if (error) return res(400, { message: error });
+    // the admin knows this password, so it is temporary (storing it cleared the flag; set it again)
+    const flagError = await deps.requirePasswordChange(userId);
     await deps.logPasswordChange(userId, callerId);
+    if (flagError) return res(500, { message: "The password was changed, but the account could not be marked for a password change. Tick \"must change password\" for this user." });
     return res(200, { ok: true });
+  }
+
+  if (body.action === "sync_access") {
+    const userId = String(body.user_id ?? "");
+    if (userId === callerId) return res(400, { message: "You can't change your own access." });
+    const target = await deps.profile(userId).catch(() => null);
+    if (!target) return res(404, { message: "That user doesn't exist." });
+    const error = await deps.setBanned(userId, target.active !== true);
+    return error ? res(502, { message: error }) : res(200, { ok: true, banned: target.active !== true });
   }
 
   if (body.action === "reset_link") {

@@ -26,7 +26,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const mine = r.user_id === s.userId;
   const open = !r.locked && r.report_date === dhakaToday();
   const manages = r.project ? canManageProject(s, r.project) : false;
-  const canUpload = (mine && open) || manages;
+  const canUpload = (mine && open) || s.isAdmin;   // the Storage policy: the author while the report is open, or an Admin
   const canDeleteFiles = (mine && open) || manages;
   const row: DailyRow = {
     key: r.id, date: r.report_date, reportId: null, userId: r.user_id, locked: r.locked, edit: null, offDay: false, assignedTo: r.author?.full_name ?? "",

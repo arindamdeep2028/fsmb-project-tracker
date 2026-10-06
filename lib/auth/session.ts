@@ -29,13 +29,18 @@ export const getSession = cache(async (): Promise<Session | null> => {
   ]);
   if (!profile.data) return null;
   const memberships = members.data ?? [];
+  // SEC-3: a headship or PM row counts only while the account's role still allows it (the database helpers
+  // app.user_heads_department / app.user_is_pm apply the same rule).
+  const role = profile.data.role;
+  const mayHead = role === "dept_head" || role === "admin";
+  const mayBePm = role === "pm" || role === "dept_head" || role === "admin";
   return {
     userId: auth.user.id,
     email: auth.user.email ?? null,
     profile: profile.data,
     isAdmin: profile.data.role === "admin" && profile.data.active,
-    headedDepartmentIds: (heads.data ?? []).map((h) => h.department_id),
-    pmProjectIds: memberships.filter((m) => m.member_role === "pm").map((m) => m.project_id),
+    headedDepartmentIds: mayHead ? (heads.data ?? []).map((h) => h.department_id) : [],
+    pmProjectIds: mayBePm ? memberships.filter((m) => m.member_role === "pm").map((m) => m.project_id) : [],
     memberProjectIds: memberships.map((m) => m.project_id),
   };
 });
@@ -44,7 +49,7 @@ export const getSession = cache(async (): Promise<Session | null> => {
 export async function requireSession(opts: { allowPasswordChange?: boolean } = {}): Promise<Session> {
   const s = await getSession();
   if (!s) redirect("/login");
-  if (!s.profile.active) redirect("/auth/signout?reason=inactive");
+  if (!s.profile.active) redirect("/login?reason=inactive");   // the middleware signs a deactivated session out there
   if (s.profile.must_change_password && !opts.allowPasswordChange) redirect("/change-password");
   return s;
 }

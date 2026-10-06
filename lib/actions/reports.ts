@@ -2,7 +2,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { type ActionResult, fail } from "@/lib/errors";
-import { ALLOWED_TYPES, BUCKET, MAX_BYTES } from "@/lib/storage";
+import { BUCKET } from "@/lib/storage";
+import { checkUploadClaim, checkUploadContent } from "@/lib/uploads";
 import { dailyRowInput, firstIssue, reportInput, type DailyRowInput, type ReportInput } from "@/lib/validation";
 import { dhakaToday } from "@/lib/time";
 import { getSession } from "@/lib/auth/session";
@@ -90,26 +91,67 @@ export async function saveDailyRow(input: DailyRowInput): Promise<ActionResult<{
   return { ok: true, message: "Daily update saved", data: { id: report.id } };
 }
 
+/**
+ * Records a file already uploaded to Storage as an attachment of a report. Checked here: type list, size, name,
+ * that the path is this report's folder, and that the stored bytes really are the declared kind of file
+ * (lib/uploads.ts). A file that fails is removed from Storage again. The database then takes size and type from
+ * the stored object, and RLS plus the attachment trigger decide whose report may get files.
+ */
 export async function recordAttachment(input: { report_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number }): Promise<ActionResult> {
-  if (!(ALLOWED_TYPES as readonly string[]).includes(input.mime_type)) return { ok: false, message: "That file type isn't allowed" };
-  if (input.size_bytes > MAX_BYTES) return { ok: false, message: "Files are limited to 10 MB" };
+  const claim = checkUploadClaim(input);
+  if (!claim.ok) return claim;
+  const s = await getSession();
+  if (!s || !s.profile.active) return { ok: false, message: "Sign in again to save." };
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  const { error } = await supabase.from("daily_report_attachments").insert({ ...input, uploaded_by: auth.user!.id });
+  const content = checkUploadContent(input, await readHead(supabase, input.storage_path));
+  if (!content.ok) {
+    await supabase.storage.from(BUCKET).remove([input.storage_path]);
+    return content;
+  }
+  const { error } = await supabase.from("daily_report_attachments").insert({
+    report_id: input.report_id, storage_path: input.storage_path, file_name: input.file_name,
+    mime_type: input.mime_type, size_bytes: input.size_bytes, uploaded_by: s.userId,
+  });
   if (error) return fail(error);
   refresh();
   return { ok: true };
 }
 
-/** Author while the report is open; PM, Department Head or Admin of the project at any time. */
+/** The first bytes of a stored file, read with the caller's own access (a short-lived signed URL); null if unreadable. */
+async function readHead(supabase: Awaited<ReturnType<typeof createClient>>, path: string): Promise<Uint8Array | null> {
+  const { data } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
+  if (!data?.signedUrl) return null;
+  try {
+    const res = await fetch(data.signedUrl, { headers: { Range: "bytes=0-4095" }, cache: "no-store" });
+    if (!res.ok || !res.body) return null;
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = []; let size = 0;
+    while (size < 4096) {                       // stop early if the server ignored the Range header
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value); size += value.length;
+    }
+    await reader.cancel().catch(() => {});
+    const head = new Uint8Array(Math.min(size, 4096));
+    let at = 0;
+    for (const c of chunks) { const part = c.subarray(0, head.length - at); head.set(part, at); at += part.length; if (at >= head.length) break; }
+    return head;
+  } catch { return null; }
+}
+
+/**
+ * Author while the report is open; PM, Department Head or Admin of the project at any time. The attachment row
+ * is deleted first, under RLS: if that is refused nothing is touched, so a file can never disappear while its
+ * row stays. A stored file whose removal then fails is only an orphan, which the nightly clean-up removes.
+ */
 export async function deleteAttachment(attachmentId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: row } = await supabase.from("daily_report_attachments").select("storage_path").eq("id", attachmentId).maybeSingle();
   if (!row) return { ok: false, message: "Not found, or you no longer have access to it." };
-  const { error: sErr } = await supabase.storage.from(BUCKET).remove([row.storage_path]);
-  if (sErr) return { ok: false, message: "You don't have permission to do that." };
-  const { error } = await supabase.from("daily_report_attachments").delete().eq("id", attachmentId);
+  const { error, count } = await supabase.from("daily_report_attachments").delete({ count: "exact" }).eq("id", attachmentId);
   if (error) return fail(error);
+  if (!count) return { ok: false, message: "You don't have permission to do that." };
+  await supabase.storage.from(BUCKET).remove([row.storage_path]);
   refresh();
   return { ok: true, message: "File removed" };
 }
@@ -123,14 +165,17 @@ export async function setReportLock(reportId: string, locked: boolean): Promise<
   return { ok: true, message: locked ? "Report locked" : "Report unlocked" };
 }
 
-/** Admin: delete a report, its items, attachment rows and stored files. */
+/**
+ * Admin: delete a report, its items, attachment rows and stored files. The report is deleted first, under RLS;
+ * the stored files are removed only once that has succeeded, so a refused delete leaves every file in place.
+ */
 export async function deleteReport(reportId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: files } = await supabase.from("daily_report_attachments").select("storage_path").eq("report_id", reportId);
-  if (files?.length) await supabase.storage.from(BUCKET).remove(files.map((f) => f.storage_path));
   const { error, count } = await supabase.from("daily_reports").delete({ count: "exact" }).eq("id", reportId);
   if (error) return fail(error);
   if (!count) return { ok: false, message: "You don't have permission to do that." };
+  if (files?.length) await supabase.storage.from(BUCKET).remove(files.map((f) => f.storage_path));
   refresh();
   return { ok: true, message: "Report deleted" };
 }

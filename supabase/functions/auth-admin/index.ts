@@ -5,7 +5,9 @@
 //                                                        caller, and zero active admins; switched off when the secret is unset)
 //   invite      – create a user with role/department/password (caller must be an active Admin)
 //   reset_link  – email a password-reset link to a user (caller must be an active Admin)
-//   set_password – set ANOTHER user's password through the Admin Auth API (caller must be an active Admin).
+//   sync_access – make a user's Auth account follow their profile: banned while inactive (caller must be an active Admin)
+//   set_password – set ANOTHER user's password through the Admin Auth API (caller must be an active Admin);
+//                  the account is then marked "must change password".
 //                  The caller's own password and session are never touched; passwords are never stored,
 //                  returned or logged — only the fact of the change goes to the activity log.
 // Role and department go in app_metadata, which users cannot change; migration 12 builds the profile.
@@ -35,7 +37,7 @@ const deps: AuthAdminDeps = {
     return data.user?.id ?? null;
   },
   async profile(id) {
-    const { data, error } = await admin.from("profiles").select("role, active, email, login_name").eq("id", id).maybeSingle();
+    const { data, error } = await admin.from("profiles").select("role, active, email, login_name, must_change_password").eq("id", id).maybeSingle();
     if (error) throw new Error("profile unavailable");
     return data;
   },
@@ -45,6 +47,15 @@ const deps: AuthAdminDeps = {
   },
   async setPassword(userId, password) {
     const { error } = await admin.auth.admin.updateUserById(userId, { password });
+    return error?.message ?? null;
+  },
+  async requirePasswordChange(userId) {
+    const { error } = await admin.from("profiles").update({ must_change_password: true }).eq("id", userId);
+    return error?.message ?? null;
+  },
+  async setBanned(userId, banned) {
+    // ~100 years, or lifted. A banned account cannot sign in or refresh its session.
+    const { error } = await admin.auth.admin.updateUserById(userId, { ban_duration: banned ? "876000h" : "none" });
     return error?.message ?? null;
   },
   async logPasswordChange(userId, actorId) {

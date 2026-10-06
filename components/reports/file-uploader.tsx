@@ -35,6 +35,7 @@ export function FileUploader({ projectId, reportId, existingCount, maxFiles }: {
     const list = Array.from(files).slice(0, Math.max(0, left));
     if (files.length > list.length) toast({ ok: false, message: `Up to ${maxFiles} files per report.` });
     const supabase = getBrowserClient();
+    let added = 0;
     for (const original of list) {
       if (!(ALLOWED_TYPES as readonly string[]).includes(original.type)) { toast({ ok: false, message: `${original.name}: use a photo, PDF or Office file.` }); continue; }
       const file = await shrinkImage(original);
@@ -42,13 +43,14 @@ export function FileUploader({ projectId, reportId, existingCount, maxFiles }: {
       setBusy(`Uploading ${original.name}…`);
       const path = reportFilePath(projectId, reportId, file.name);
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: false });
-      if (error) { toast({ ok: false, message: `${original.name} wasn't uploaded. The report may be locked.` }); continue; }
+      if (error) { toast({ ok: false, message: `${original.name} wasn't uploaded. The report may be locked or already have its ${maxFiles} files.` }); continue; }
       const r = await recordAttachment({ report_id: reportId, storage_path: path, file_name: original.name, mime_type: file.type, size_bytes: file.size });
-      if (!r.ok) { await supabase.storage.from(BUCKET).remove([path]); toast(r); }
+      if (!r.ok) { await supabase.storage.from(BUCKET).remove([path]); toast(r); continue; }
+      added++;
     }
     setBusy(null);
     if (input.current) input.current.value = "";
-    toast({ ok: true, message: "Files added" });
+    if (added) toast({ ok: true, message: added === 1 ? "File added" : `${added} files added` });
   }
 
   return (

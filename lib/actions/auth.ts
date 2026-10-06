@@ -6,6 +6,7 @@ import type { ActionResult } from "@/lib/errors";
 import { password } from "@/lib/validation";
 import { landingForRole } from "@/lib/auth/landing";
 import { emailForSignIn, loginNamesEnabled, signInCopy } from "@/lib/auth/sign-in";
+import { safeNext } from "@/lib/auth/redirects";
 
 /**
  * Sign in with an email address, or with a login name when the server holds LOGIN_RESOLVER_SECRET (lib/auth/sign-in.ts).
@@ -39,7 +40,7 @@ export async function signIn(_: ActionResult | null, form: FormData): Promise<Ac
     return { ok: false, message: "Your account is inactive. Contact your admin." };
   }
   if (profile.must_change_password) redirect("/change-password");
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : landingForRole(profile.role));
+  redirect(safeNext(next, landingForRole(profile.role)));
 }
 
 export async function requestPasswordReset(_: ActionResult | null, form: FormData): Promise<ActionResult> {
@@ -65,7 +66,10 @@ export async function setNewPassword(_: ActionResult | null, form: FormData): Pr
   if (!auth.user) return { ok: false, message: "Your link has expired. Request a new one." };
   const { error } = await supabase.auth.updateUser({ password: pw });
   if (error) return { ok: false, message: error.message };
+  // The database clears must_change_password when Supabase Auth stores the new password (migration 23); users can
+  // no longer clear it themselves. The update below is a no-op there and keeps older databases working.
   await supabase.from("profiles").update({ must_change_password: false }).eq("id", auth.user.id);
+  await supabase.auth.refreshSession();   // new token: its must_change_password claim is now false
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", auth.user.id).maybeSingle();
   redirect(landingForRole(profile?.role));
 }

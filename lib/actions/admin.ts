@@ -52,6 +52,12 @@ export async function updateUser(userId: string, patch: {
   const { error } = await supabase.from("profiles").update(patch as TablesUpdate<"profiles">).eq("id", userId);
   if (error) return fail(error);
   refresh();
+  if (patch.active !== undefined) {
+    // SEC-6: the profile decides data access at once (RLS); this also stops the Auth account from signing in or
+    // refreshing its session. auth-admin reads the profile itself and bans or unbans to match.
+    const r = await callEdge("auth-admin", { action: "sync_access", user_id: userId });
+    if (!r.ok) return { ok: true, message: `User saved. Their access to data is ${patch.active ? "restored" : "blocked"}, but the sign-in service could not be updated: ${r.message}` };
+  }
   return { ok: true, message: "User saved" };
 }
 

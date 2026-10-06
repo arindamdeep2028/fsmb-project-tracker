@@ -69,3 +69,31 @@ function describe(mime: string): string {
   if (mime === "application/pdf") return "PDF";
   return mime === DOCX ? "Word file" : mime === XLSX ? "Excel file" : "PowerPoint file";
 }
+
+/**
+ * Deleting something that has stored files (an attachment, or a report with attachments): the database row goes
+ * first, under RLS, and the stored files only once that has succeeded.
+ *   "refused"    the row was not deleted (no permission, or already gone): no file is touched
+ *   "failed"     the database reported an error: no file is touched
+ *   "done"       row and files are gone
+ *   "files-left" the row is gone but `left` stored file(s) could not be removed. They are unreachable from the
+ *                app (no row points at them) and no other row can be made to point at them by someone without
+ *                access to that report's folder; they only take up space until removed in Storage.
+ * The reverse order could delete a file and then be refused the row, leaving a broken attachment — or lose a file
+ * the caller had no right to delete from the report.
+ */
+export type DeleteOutcome = { result: "refused" } | { result: "failed"; error: unknown } | { result: "done" } | { result: "files-left"; left: number };
+export async function deleteRowThenFiles(ops: {
+  /** deletes the row under the caller's own access; `count` = rows actually deleted */
+  deleteRow(): Promise<{ error: unknown; count: number | null }>;
+  paths: string[];
+  /** removes stored files under the caller's own access; resolves to how many were removed (may throw) */
+  removeFiles(paths: string[]): Promise<number>;
+}): Promise<DeleteOutcome> {
+  const { error, count } = await ops.deleteRow();
+  if (error) return { result: "failed", error };
+  if (!count) return { result: "refused" };
+  if (!ops.paths.length) return { result: "done" };
+  const removed = await ops.removeFiles(ops.paths).catch(() => 0);
+  return removed >= ops.paths.length ? { result: "done" } : { result: "files-left", left: ops.paths.length - removed };
+}

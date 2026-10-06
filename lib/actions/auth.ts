@@ -54,7 +54,13 @@ export async function requestPasswordReset(_: ActionResult | null, form: FormDat
   return { ok: true, message: "If that address has an account, a reset link is on its way." };
 }
 
-/** Used by /change-password (forced first change) and /reset-password (after the email link). */
+/**
+ * Used by /change-password (forced first change) and /reset-password (after the email link).
+ * The change is made by the auth-admin Edge Function for the signed-in caller: it stores the new password only
+ * after checking that it differs from the current one, and it alone clears must_change_password (users cannot,
+ * and a sign-in never does). Supabase Auth ends every session of the account on a password change, so the person
+ * signs in again with the new password.
+ */
 export async function setNewPassword(_: ActionResult | null, form: FormData): Promise<ActionResult> {
   const pw = String(form.get("password") ?? "");
   const confirm = String(form.get("confirm") ?? "");
@@ -64,14 +70,10 @@ export async function setNewPassword(_: ActionResult | null, form: FormData): Pr
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return { ok: false, message: "Your link has expired. Request a new one." };
-  const { error } = await supabase.auth.updateUser({ password: pw });
-  if (error) return { ok: false, message: error.message };
-  // The database clears must_change_password when Supabase Auth stores the new password (migration 23); users can
-  // no longer clear it themselves. The update below is a no-op there and keeps older databases working.
-  await supabase.from("profiles").update({ must_change_password: false }).eq("id", auth.user.id);
-  await supabase.auth.refreshSession();   // new token: its must_change_password claim is now false
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", auth.user.id).maybeSingle();
-  redirect(landingForRole(profile?.role));
+  const r = await callEdge("auth-admin", { action: "change_own_password", password: pw });
+  if (!r.ok) return { ok: false, message: r.message };
+  await supabase.auth.signOut({ scope: "local" });   // this browser's cookies; the account's sessions are already ended
+  redirect("/login?reason=password-changed");
 }
 
 /**

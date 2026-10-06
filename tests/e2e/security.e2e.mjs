@@ -145,16 +145,20 @@ try {
   const pmPage = await open(); await signIn(pmPage, "abrar");
   await go(pmPage, `/daily-reports/${reportId}`);
   check("A manager is no longer offered an upload Storage would refuse", (await pmPage.locator("#report-files").count()) === 0 && (await pmPage.getByText("rig-photo.png").count()) > 0);
+  pmPage.once("dialog", (d) => d.accept());
+  await pmPage.getByRole("button", { name: "Remove second.png" }).click();
+  await pmPage.getByText("File removed").first().waitFor({ timeout: 30000 }).catch(() => {});
+  check("A manager removes a file from a team member's report: row and stored file both go", (await rows()).length === 1 && (await objects()) === 1, `rows ${(await rows()).length}, objects ${await objects()}`);
   const masrurApi = await api("masrur");
   const att = await one("select id, storage_path from daily_report_attachments where report_id = $1 and file_name = 'rig-photo.png'", [reportId]);
   await masrurApi.from("daily_report_attachments").delete().eq("id", att.id);
   await masrurApi.storage.from("daily-report-files").remove([att.storage_path]);
-  check("Someone with no access can delete neither the row nor the file", (await rows()).length === 2 && (await objects()) === 2);
+  check("Someone with no access can delete neither the row nor the file", (await rows()).length === 1 && (await objects()) === 1);
   await go(araf, `/daily-reports/${reportId}`);
   araf.once("dialog", (d) => d.accept());
   await araf.getByRole("button", { name: "Remove rig-photo.png" }).click();
   await araf.getByText("File removed").first().waitFor({ timeout: 30000 }).catch(() => {});
-  check("The author removes a file: the row and the stored file both go", (await rows()).length === 1 && (await objects()) === 1, `rows ${(await rows()).length}, objects ${await objects()}`);
+  check("The author removes a file: the row and the stored file both go, no orphan left", (await rows()).length === 0 && (await objects()) === 0, `rows ${(await rows()).length}, objects ${await objects()}`);
   await pmPage.context().close(); await araf.context().close();
 
   console.log("--- SEC-4: deadline and extension audit ---");
@@ -191,6 +195,10 @@ try {
   const fresh = await open();
   await signIn(fresh, "araf");
   check("Signing in lands on /change-password", at(fresh) === "/change-password", at(fresh));
+  const hash = async () => (await one("select encrypted_password h from auth.users where id = $1", [uid.araf])).h;
+  const h1 = await hash(); await token("araf"); const h2 = await hash(); await token("araf");
+  check("REGRESSION: signing in — even when the Auth service rewrites the stored password hash, as it does when it re-encrypts — leaves the flag set",
+    h1 !== h2 && (await one("select must_change_password m from profiles where id = $1", [uid.araf])).m === true, h1 !== h2 ? "hash rewritten at sign-in, flag still set" : "the stand-in did not rewrite the hash");
   for (const path of ["/dashboard", `/projects/${P02}/tasks`, "/daily-reports/new", "/settings", "/notifications"]) {
     await go(fresh, path);
     if (at(fresh) !== "/change-password") { check(`Direct URL ${path} is redirected to /change-password`, false, at(fresh)); }
@@ -199,11 +207,17 @@ try {
   const act = await fresh.request.post(`${BASE}/dashboard`, { headers: { "next-action": "0".repeat(40), "content-type": "text/plain;charset=UTF-8", origin: BASE }, data: "[]", maxRedirects: 0 });
   check("REGRESSION: a Server Action post to another page is stopped by the middleware", act.status() === 307 && new URL(act.headers().location, BASE).pathname === "/change-password", `HTTP ${act.status()} → ${act.headers().location}`);
   await go(fresh, "/change-password");
+  await fresh.fill("#password", PW); await fresh.fill("#confirm", PW); await fresh.click("button[type=submit]");
+  await fresh.getByText("different from your current one").waitFor({ timeout: 30000 }).catch(() => {});
+  check("REGRESSION: re-submitting the current password is refused and the flag stays", (await fresh.getByText("different from your current one").count()) === 1 && at(fresh) === "/change-password"
+    && (await one("select must_change_password m from profiles where id = $1", [uid.araf])).m === true);
   await fresh.fill("#password", NEW_PW); await fresh.fill("#confirm", NEW_PW); await fresh.click("button[type=submit]");
-  await fresh.waitForURL((u) => u.pathname !== "/change-password", { timeout: 30000 }).catch(() => {});
-  check("Changing the password clears the flag (in the database) and lets the user in", (await one("select must_change_password m from profiles where id = $1", [uid.araf])).m === false && at(fresh) === "/dashboard", at(fresh));
+  await fresh.waitForURL((u) => u.pathname === "/login", { timeout: 30000 }).catch(() => {});
+  check("A real password change clears the flag and asks the person to sign in again", (await one("select must_change_password m from profiles where id = $1", [uid.araf])).m === false
+    && at(fresh) === "/login?reason=password-changed" && (await fresh.locator("form").innerText()).includes("Password changed. Sign in with your new password."), at(fresh));
+  check("The old password no longer works; the new one does", !(await signIn(fresh, "araf", PW)) && (await signIn(fresh, "araf", NEW_PW)) && at(fresh) === "/dashboard", at(fresh));
   await go(fresh, `/projects/${P02}/tasks`);
-  check("…and the rest of the app is reachable straight away (fresh token)", at(fresh) === `/projects/${P02}/tasks`, at(fresh));
+  check("…and the rest of the app is reachable", at(fresh) === `/projects/${P02}/tasks`, at(fresh));
   await fresh.context().close();
   // an Admin sets someone's password: it is temporary
   const adminToken = await token("rashidul");

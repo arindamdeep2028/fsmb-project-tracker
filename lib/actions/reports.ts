@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { type ActionResult, fail } from "@/lib/errors";
 import { BUCKET } from "@/lib/storage";
-import { checkUploadClaim, checkUploadContent } from "@/lib/uploads";
+import { checkUploadClaim, checkUploadContent, deleteRowThenFiles } from "@/lib/uploads";
 import { dailyRowInput, firstIssue, reportInput, type DailyRowInput, type ReportInput } from "@/lib/validation";
 import { dhakaToday } from "@/lib/time";
 import { getSession } from "@/lib/auth/session";
@@ -139,21 +139,31 @@ async function readHead(supabase: Awaited<ReturnType<typeof createClient>>, path
   } catch { return null; }
 }
 
+/** Removes stored files with the caller's own access; resolves to how many Storage actually removed. */
+async function removeStored(supabase: Awaited<ReturnType<typeof createClient>>, paths: string[]): Promise<number> {
+  const { data, error } = await supabase.storage.from(BUCKET).remove(paths);
+  return error ? 0 : (data ?? []).length;
+}
+
 /**
- * Author while the report is open; PM, Department Head or Admin of the project at any time. The attachment row
- * is deleted first, under RLS: if that is refused nothing is touched, so a file can never disappear while its
- * row stays. A stored file whose removal then fails is only an orphan, which the nightly clean-up removes.
+ * Author while the report is open; PM, Department Head or Admin of the project at any time. Row first, then the
+ * stored file (lib/uploads.ts deleteRowThenFiles): a refused delete touches nothing, and a file is never removed
+ * while its row stays. If the stored copy cannot be removed afterwards, the caller is told so.
  */
 export async function deleteAttachment(attachmentId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: row } = await supabase.from("daily_report_attachments").select("storage_path").eq("id", attachmentId).maybeSingle();
   if (!row) return { ok: false, message: "Not found, or you no longer have access to it." };
-  const { error, count } = await supabase.from("daily_report_attachments").delete({ count: "exact" }).eq("id", attachmentId);
-  if (error) return fail(error);
-  if (!count) return { ok: false, message: "You don't have permission to do that." };
-  await supabase.storage.from(BUCKET).remove([row.storage_path]);
+  const out = await deleteRowThenFiles({
+    deleteRow: async () => supabase.from("daily_report_attachments").delete({ count: "exact" }).eq("id", attachmentId),
+    paths: [row.storage_path],
+    removeFiles: (paths) => removeStored(supabase, paths),
+  });
+  if (out.result === "failed") return fail(out.error as Parameters<typeof fail>[0]);
+  if (out.result === "refused") return { ok: false, message: "You don't have permission to do that." };
   refresh();
-  return { ok: true, message: "File removed" };
+  return out.result === "done" ? { ok: true, message: "File removed" }
+    : { ok: true, message: "File removed from the report. Its stored copy could not be deleted; tell your admin so it can be cleaned up." };
 }
 
 /** Admin: lock or unlock a report. */
@@ -166,16 +176,21 @@ export async function setReportLock(reportId: string, locked: boolean): Promise<
 }
 
 /**
- * Admin: delete a report, its items, attachment rows and stored files. The report is deleted first, under RLS;
- * the stored files are removed only once that has succeeded, so a refused delete leaves every file in place.
+ * Admin: delete a report, its items, attachment rows and stored files. The report is deleted first, under RLS
+ * (lib/uploads.ts deleteRowThenFiles); the stored files are removed only once that has succeeded, so a refused
+ * delete leaves every file in place.
  */
 export async function deleteReport(reportId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: files } = await supabase.from("daily_report_attachments").select("storage_path").eq("report_id", reportId);
-  const { error, count } = await supabase.from("daily_reports").delete({ count: "exact" }).eq("id", reportId);
-  if (error) return fail(error);
-  if (!count) return { ok: false, message: "You don't have permission to do that." };
-  if (files?.length) await supabase.storage.from(BUCKET).remove(files.map((f) => f.storage_path));
+  const out = await deleteRowThenFiles({
+    deleteRow: async () => supabase.from("daily_reports").delete({ count: "exact" }).eq("id", reportId),
+    paths: (files ?? []).map((f) => f.storage_path),
+    removeFiles: (paths) => removeStored(supabase, paths),
+  });
+  if (out.result === "failed") return fail(out.error as Parameters<typeof fail>[0]);
+  if (out.result === "refused") return { ok: false, message: "You don't have permission to do that." };
   refresh();
-  return { ok: true, message: "Report deleted" };
+  return out.result === "done" ? { ok: true, message: "Report deleted" }
+    : { ok: true, message: `Report deleted. ${out.left} stored file(s) could not be deleted and need cleaning up in Storage.` };
 }

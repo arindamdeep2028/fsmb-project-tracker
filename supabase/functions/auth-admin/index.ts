@@ -5,6 +5,9 @@
 //                                                        caller, and zero active admins; switched off when the secret is unset)
 //   invite      – create a user with role/department/password (caller must be an active Admin)
 //   reset_link  – email a password-reset link to a user (caller must be an active Admin)
+//   change_own_password – the signed-in caller replaces their own password (any active user); stores it through the
+//                  Admin Auth API after checking it differs from the current one, then clears "must change password".
+//                  Supabase Auth signs the account out everywhere on a password change, so they sign in again.
 //   sync_access – make a user's Auth account follow their profile: banned while inactive (caller must be an active Admin)
 //   set_password – set ANOTHER user's password through the Admin Auth API (caller must be an active Admin);
 //                  the account is then marked "must change password".
@@ -47,6 +50,18 @@ const deps: AuthAdminDeps = {
   },
   async setPassword(userId, password) {
     const { error } = await admin.auth.admin.updateUserById(userId, { password });
+    return error?.message ?? null;
+  },
+  async passwordIsCurrent(email, password) {
+    // The only way to know: try to sign in with it. A fresh client, so no session is kept.
+    const probe = createClient(URL_, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data, error } = await probe.auth.signInWithPassword({ email, password });
+    if (data?.session) { await probe.auth.signOut().catch(() => {}); return true; }
+    if (error && (error.code === "invalid_credentials" || /invalid login credentials/i.test(error.message))) return false;
+    throw new Error("could not check the current password");
+  },
+  async clearPasswordChange(userId) {
+    const { error } = await admin.from("profiles").update({ must_change_password: false }).eq("id", userId);
     return error?.message ?? null;
   },
   async requirePasswordChange(userId) {

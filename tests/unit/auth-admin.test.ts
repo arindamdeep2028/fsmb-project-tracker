@@ -20,6 +20,8 @@ function deps(over: Partial<AuthAdminDeps> = {}): AuthAdminDeps {
     loginNameTaken: vi.fn(async () => false),
     setPassword: vi.fn(async () => null),
     requirePasswordChange: vi.fn(async () => null),
+    passwordIsCurrent: vi.fn(async (_email: string, password: string) => password === "the-current-password"),
+    clearPasswordChange: vi.fn(async () => null),
     setBanned: vi.fn(async () => null),
     logPasswordChange: vi.fn(async () => {}),
     sendResetLink: vi.fn(async () => null),
@@ -164,6 +166,61 @@ describe("auth-admin user management stays Admin-only", () => {
     expect(d.setBanned).not.toHaveBeenCalled();
     const failing = deps({ setBanned: vi.fn(async () => "auth service unavailable") });
     expect((await handleAuthAdmin(post({ action: "sync_access", user_id: OTHER }, "Bearer admin"), failing)).status).toBe(502);
+  });
+  it("REGRESSION SEC-5: the flag is cleared only after a different password has really been stored", async () => {
+    const d = deps();
+    const r = await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }, "Bearer engineer"), d);
+    expect(r).toEqual({ status: 200, body: { ok: true } });
+    expect(d.passwordIsCurrent).toHaveBeenCalledWith("eng@example.test", "a-brand-new-password");
+    expect(d.setPassword).toHaveBeenCalledWith(ENGINEER, "a-brand-new-password");
+    expect(d.clearPasswordChange).toHaveBeenCalledWith(ENGINEER);
+    // order: check → store → clear
+    const order = [d.passwordIsCurrent, d.setPassword, d.clearPasswordChange].map((f) => (f as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]);
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+  });
+  it("REGRESSION SEC-5: submitting the current password changes nothing and does not clear the flag", async () => {
+    const d = deps();
+    const r = await handleAuthAdmin(post({ action: "change_own_password", password: "the-current-password" }, "Bearer engineer"), d);
+    expect(r.status).toBe(400);
+    expect(d.setPassword).not.toHaveBeenCalled();
+    expect(d.clearPasswordChange).not.toHaveBeenCalled();
+  });
+  it("SEC-5: if the current password cannot be checked, nothing is changed and the flag stays", async () => {
+    const d = deps({ passwordIsCurrent: vi.fn(async () => { throw new Error("auth unavailable"); }) });
+    expect((await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }, "Bearer engineer"), d)).status).toBe(503);
+    expect(d.setPassword).not.toHaveBeenCalled();
+    expect(d.clearPasswordChange).not.toHaveBeenCalled();
+  });
+  it("SEC-5: if the password cannot be stored, the flag stays", async () => {
+    const d = deps({ setPassword: vi.fn(async () => "Password is too weak") });
+    const r = await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }, "Bearer engineer"), d);
+    expect(r.status).toBe(400);
+    expect(String(r.body.message)).not.toMatch(/weak/i);            // no service detail
+    expect(d.clearPasswordChange).not.toHaveBeenCalled();
+  });
+  it("SEC-5: a change that could not be recorded is not reported as success", async () => {
+    const d = deps({ clearPasswordChange: vi.fn(async () => "update failed") });
+    expect((await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }, "Bearer engineer"), d)).status).toBe(500);
+  });
+  it("SEC-5: change_own_password is for the signed-in caller only: no target id, not signed out, not inactive", async () => {
+    const d = deps();
+    // a user id in the body is ignored: the caller's own account is changed
+    await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password", user_id: OTHER }, "Bearer engineer"), d);
+    expect(d.setPassword).toHaveBeenCalledWith(ENGINEER, "a-brand-new-password");
+    expect(d.clearPasswordChange).toHaveBeenCalledWith(ENGINEER);
+    const out = deps();
+    expect((await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }), out)).status).toBe(401);
+    expect((await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }, "Bearer nobody"), out)).status).toBe(401);
+    const inactive = deps({ profile: vi.fn(async () => ({ role: "engineer", active: false, email: "eng@example.test", login_name: "eng" })) });
+    expect((await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }, "Bearer engineer"), inactive)).status).toBe(403);
+    for (const x of [out, inactive]) { expect(x.setPassword).not.toHaveBeenCalled(); expect(x.clearPasswordChange).not.toHaveBeenCalled(); }
+    expect((await handleAuthAdmin(post({ action: "change_own_password", password: "short" }, "Bearer engineer"), deps())).status).toBe(400);
+  });
+  it("SEC-5: it works for a person whose flag is set, and nothing else does for them", async () => {
+    const flagged = () => deps({ profile: vi.fn(async (id: string) => ({ role: id === ADMIN ? "admin" : "engineer", active: true, email: "x@example.test", login_name: "x", must_change_password: true })) });
+    const d = flagged();
+    expect((await handleAuthAdmin(post({ action: "change_own_password", password: "a-brand-new-password" }, "Bearer admin"), d)).status).toBe(200);
+    expect((await handleAuthAdmin(post(invite, "Bearer admin"), flagged())).status).toBe(403);
   });
   it("rejects other methods and malformed bodies", async () => {
     expect((await handleAuthAdmin({ method: "GET", authHeader: null, body: null }, deps())).status).toBe(405);

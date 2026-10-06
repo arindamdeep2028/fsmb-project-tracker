@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { checkUploadClaim, checkUploadContent, sniffFileType, type UploadClaim } from "@/lib/uploads";
+import { describe, expect, it, vi } from "vitest";
+import { checkUploadClaim, checkUploadContent, deleteRowThenFiles, sniffFileType, type UploadClaim } from "@/lib/uploads";
 
 const PROJECT = "aaaaaaaa-0000-4000-8000-000000000002", REPORT = "cccccccc-0000-4000-8000-000000000001", FILE = "dddddddd-0000-4000-8000-000000000009";
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -100,5 +100,41 @@ describe("SEC-14: what an upload may claim", () => {
     for (const file_name of ["", "x".repeat(256), "a/b.jpg", "a\\b.jpg", "a\u0000.jpg", "line\nbreak.jpg"]) {
       expect(checkUploadClaim(claim({ file_name }))).toMatchObject({ ok: false });
     }
+  });
+});
+
+describe("SEC-14: deleting something that has stored files fails safely", () => {
+  const paths = ["p/r/a.jpg", "p/r/b.pdf"];
+  it("REGRESSION: a refused row delete touches no file", async () => {
+    const removeFiles = vi.fn(async () => 2);
+    expect(await deleteRowThenFiles({ deleteRow: async () => ({ error: null, count: 0 }), paths, removeFiles })).toEqual({ result: "refused" });
+    expect(await deleteRowThenFiles({ deleteRow: async () => ({ error: null, count: null }), paths, removeFiles })).toEqual({ result: "refused" });
+    expect(removeFiles).not.toHaveBeenCalled();
+  });
+  it("a database error touches no file and is reported", async () => {
+    const removeFiles = vi.fn(async () => 2);
+    const error = { code: "23503", message: "still referenced" };
+    expect(await deleteRowThenFiles({ deleteRow: async () => ({ error, count: null }), paths, removeFiles })).toEqual({ result: "failed", error });
+    expect(removeFiles).not.toHaveBeenCalled();
+  });
+  it("the row goes first, then exactly its files", async () => {
+    const order: string[] = [];
+    const out = await deleteRowThenFiles({
+      deleteRow: async () => { order.push("row"); return { error: null, count: 1 }; }, paths,
+      removeFiles: async (p) => { order.push(`files:${p.join(",")}`); return p.length; },
+    });
+    expect(out).toEqual({ result: "done" });
+    expect(order).toEqual(["row", "files:p/r/a.jpg,p/r/b.pdf"]);
+  });
+  it("a file that cannot be removed afterwards is reported, never passed off as done", async () => {
+    const del = async () => ({ error: null, count: 1 });
+    expect(await deleteRowThenFiles({ deleteRow: del, paths, removeFiles: async () => 1 })).toEqual({ result: "files-left", left: 1 });
+    expect(await deleteRowThenFiles({ deleteRow: del, paths, removeFiles: async () => 0 })).toEqual({ result: "files-left", left: 2 });
+    expect(await deleteRowThenFiles({ deleteRow: del, paths, removeFiles: async () => { throw new Error("storage down"); } })).toEqual({ result: "files-left", left: 2 });
+  });
+  it("nothing stored: only the row", async () => {
+    const removeFiles = vi.fn(async () => 0);
+    expect(await deleteRowThenFiles({ deleteRow: async () => ({ error: null, count: 1 }), paths: [], removeFiles })).toEqual({ result: "done" });
+    expect(removeFiles).not.toHaveBeenCalled();
   });
 });

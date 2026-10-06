@@ -6,8 +6,10 @@
 --           role, not only the membership row). Changing a role also removes the rows the new role may not hold.
 -- B. SEC-5  A forced password change is enforced in the database: a session whose profile still has
 --           must_change_password reads and writes nothing but its own profile. Users can no longer clear the
---           flag themselves; it is cleared when Supabase Auth stores a new password. The access token carries the
---           flag as a routing hint.
+--           flag themselves. Nothing in the database clears it either: Supabase Auth rewrites the stored hash at
+--           sign-in when it re-encrypts or re-hashes (not a password change), so a trigger on auth.users cannot
+--           tell a real change. The auth-admin Edge Function clears it, after it has itself stored a password
+--           that it checked is different from the current one. The access token carries the flag as a routing hint.
 -- C. SEC-6  Deactivated accounts lose the remaining self-scoped access (notifications, preferences, own comments,
 --           own log rows, own profile update).
 -- D. SEC-4  Deadline and extension changes are attributable: extension records are stamped by the database
@@ -21,12 +23,11 @@
 -- future role changes). Backward compatible with the app version before it.
 --
 -- Rollback: re-create the replaced functions and policies from migrations 10, 12, 15, 16, 18 and 19, then
---   drop trigger on_auth_user_password_changed on auth.users;
 --   drop trigger profiles_after_role_change on public.profiles;
 --   drop trigger tasks_a_guard on public.tasks;
 --   drop trigger task_extensions_before_insert on public.task_extensions;
 --   drop trigger task_extensions_after_insert on public.task_extensions;
---   drop function app.session_ok(), app.auth_user_password_changed(), app.profiles_after_role_change(),
+--   drop function app.session_ok(), app.profiles_after_role_change(),
 --     app.tasks_guard(), app.task_extensions_before_insert(), app.task_extensions_after_insert(), app.report_has_file_room(text);
 -- =============================================================================
 
@@ -152,19 +153,21 @@ begin
   return new;
 end $$;
 
--- Supabase Auth stored a new password → the forced change is done. (An admin setting someone's password goes
--- through the auth-admin Edge Function, which sets the flag again afterwards.)
-create or replace function app.auth_user_password_changed() returns trigger
-language plpgsql security definer set search_path = '' as $$
+-- (No trigger on auth.users: see the header. must_change_password is written by an Admin, or by the auth-admin
+--  Edge Function with the service role — set after an Admin sets someone's password, cleared after the person's
+--  own verified change.)
+
+-- My own performance: like every other read, only for a usable session.
+create or replace function public.my_performance(p_from date default null, p_to date default null)
+returns table (user_id uuid, full_name text, department text, assigned bigint, completed bigint, late bigint,
+               on_time_pct numeric, red_events bigint, daily_updates bigint, score integer)
+language plpgsql stable security definer set search_path = '' as $$
+declare v_to date := coalesce(p_to, app.dhaka_today());
+        v_from date := coalesce(p_from, v_to - (select review_window_days from public.workspace_settings where id = 1));
 begin
-  if new.encrypted_password is distinct from old.encrypted_password then
-    update public.profiles set must_change_password = false where id = new.id and must_change_password;
-  end if;
-  return new;
+  if auth.uid() is null or not app.session_ok() then raise exception 'Sign in required' using errcode = '42501'; end if;
+  return query select * from app.performance_rows(v_from, v_to, null, auth.uid());
 end $$;
-revoke execute on function app.auth_user_password_changed() from public, anon, authenticated;
-create trigger on_auth_user_password_changed after update of encrypted_password on auth.users
-  for each row execute function app.auth_user_password_changed();
 
 -- Access token: user_role and user_active as before, plus must_change_password (routing hints only).
 create or replace function public.custom_access_token_hook(event jsonb) returns jsonb

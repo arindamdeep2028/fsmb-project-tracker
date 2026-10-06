@@ -7,6 +7,10 @@
 //   - Every other action needs a signed-in caller whose profile, read from the database, is an active admin
 //     who is not themselves waiting for a forced password change. A failed profile read is a refusal.
 //   - A password an admin sets for someone is temporary: that person must replace it at their next sign-in.
+//   - change_own_password is the ONLY thing that clears "must change password": it stores a new password for the
+//     signed-in caller after checking that it is not the password they have now, then clears the flag. If it
+//     cannot check, it changes nothing. (Supabase Auth rewrites the stored hash at sign-in when it re-encrypts,
+//     so "the hash changed" proves nothing; "we stored a different password" does.)
 //   - sync_access makes the Auth account follow the profile: a deactivated person can no longer sign in or
 //     refresh a session; reactivating lifts that.
 
@@ -24,6 +28,10 @@ export type AuthAdminDeps = {
   profile(id: string): Promise<{ role: string; active: boolean; email: string | null; login_name: string | null; must_change_password?: boolean } | null>;
   loginNameTaken(loginName: string): Promise<boolean>;
   setPassword(userId: string, password: string): Promise<string | null>;
+  /** true when `password` is the account's current password; MUST throw when that cannot be determined */
+  passwordIsCurrent(email: string, password: string): Promise<boolean>;
+  /** records that the person has replaced their password; returns an error message or null */
+  clearPasswordChange(userId: string): Promise<string | null>;
   /** marks the account as needing a password change at next sign-in; returns an error message or null */
   requirePasswordChange(userId: string): Promise<string | null>;
   /** blocks (true) or unblocks (false) the Auth account itself; returns an error message or null */
@@ -79,6 +87,23 @@ export async function handleAuthAdmin(req: { method: string; authHeader: string 
   const callerId = await deps.callerId(req.authHeader).catch(() => null);
   if (!callerId) return res(401, { message: "Sign in first." });
   const caller = await deps.profile(callerId).catch(() => null);
+
+  // Any signed-in, active person, for their own account only (also while "must change password" is set).
+  if (body.action === "change_own_password") {
+    if (!caller || caller.active !== true || !caller.email) return res(403, { message: "You don't have permission to do that." });
+    const password = body.password;
+    if (typeof password !== "string" || password.length < 10 || password.length > 72) return res(400, { message: "Use a password of 10 to 72 characters." });
+    let same: boolean;
+    try { same = await deps.passwordIsCurrent(caller.email, password); }
+    catch { return res(503, { message: "Your password could not be changed right now. Nothing was changed; try again in a minute." }); }
+    if (same) return res(400, { message: "Choose a password that is different from your current one." });
+    const error = await deps.setPassword(callerId, password);
+    if (error) return res(400, { message: "That password can't be used. Choose a different one." });
+    const flagError = await deps.clearPasswordChange(callerId);
+    if (flagError) return res(500, { message: "Your password was changed, but the change could not be recorded. Sign in with the new password; you may be asked to choose another." });
+    return res(200, { ok: true });
+  }
+
   if (caller?.role !== "admin" || caller.active !== true || caller.must_change_password === true) return res(403, { message: "You don't have permission to do that." });
 
   // Creates the Auth user; the on_auth_user_created trigger builds the profile from the metadata.

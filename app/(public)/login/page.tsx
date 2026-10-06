@@ -12,7 +12,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <>
       <h1 className="mb-1 text-2xl font-semibold">Sign in</h1>
       <p className="mb-6 text-ink-soft">{loginNames ? "Use the login your admin gave you." : "Use the email address and password your admin gave you."}</p>
-      <LoginForm identifierLabel={signInCopy(loginNames).label} emailOnly={!loginNames} next={next} notice={reason === "inactive" ? "Your account is inactive. Contact your admin." : undefined} />
+      <LoginForm identifierLabel={signInCopy(loginNames).label} emailOnly={!loginNames} next={next} notice={reason === "inactive" ? "Your account is inactive. Contact your admin." : reason === "password-changed" ? "Password changed. Sign in with your new password." : undefined}
+        noticeOk={reason === "password-changed"} />
     </>
   );
 }

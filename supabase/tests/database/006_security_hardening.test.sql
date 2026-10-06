@@ -4,7 +4,7 @@
 -- =============================================================================
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(65);
+select plan(68);
 
 create or replace function pg_temp.act_as(p_uid uuid) returns void language plpgsql as $$
 begin
@@ -147,10 +147,23 @@ update public.profiles set must_change_password = false where id = '11111111-000
 select pg_temp.sys();
 select is((select must_change_password from public.profiles where id = '11111111-0000-0000-0000-000000000015'), true,
           'REGRESSION: clearing the flag directly changes nothing');
-update auth.users set updated_at = now() where id = '11111111-0000-0000-0000-000000000015';
-select is((select must_change_password from public.profiles where id = '11111111-0000-0000-0000-000000000015'), true, 'An Auth update that is not a password change leaves the flag');
-update auth.users set encrypted_password = extensions.crypt('a-new-password-1', extensions.gen_salt('bf')) where id = '11111111-0000-0000-0000-000000000015';
-select is((select must_change_password from public.profiles where id = '11111111-0000-0000-0000-000000000015'), false, 'Storing a new password in Supabase Auth clears the flag');
+-- What Supabase Auth does at sign-in when it re-encrypts or re-hashes: the stored hash is rewritten, the password is the same
+-- (auth internal/api/token.go: "this is not a password change, just encryption change in the database").
+update auth.users set encrypted_password = extensions.crypt('the-unchanged-password', extensions.gen_salt('bf')), last_sign_in_at = now(), updated_at = now()
+ where id = '11111111-0000-0000-0000-000000000015';
+select is((select must_change_password from public.profiles where id = '11111111-0000-0000-0000-000000000015'), true,
+          'REGRESSION: a sign-in that rewrites the stored password hash does not clear the flag');
+update auth.users set encrypted_password = extensions.crypt('a-different-password-1', extensions.gen_salt('bf')) where id = '11111111-0000-0000-0000-000000000015';
+select is((select must_change_password from public.profiles where id = '11111111-0000-0000-0000-000000000015'), true,
+          'Nothing in the database clears the flag on its own, whatever is written to auth.users');
+select is((select count(*)::int from pg_trigger where tgrelid = 'auth.users'::regclass and not tgisinternal and tgname <> 'on_auth_user_created'), 0,
+          'No trigger on auth.users reacts to password or sign-in updates');
+select pg_temp.act_as('11111111-0000-0000-0000-000000000015');
+select throws_ok($$select * from public.my_performance()$$, '42501', null, 'A must-change session cannot read its own performance either');
+select pg_temp.sys();
+-- the auth-admin Edge Function (service role), after it has stored a verified different password
+update public.profiles set must_change_password = false where id = '11111111-0000-0000-0000-000000000015';
+select is((select must_change_password from public.profiles where id = '11111111-0000-0000-0000-000000000015'), false, 'The service clears the flag after a verified change');
 select pg_temp.act_as('11111111-0000-0000-0000-000000000015');
 select ok((select count(*) from public.projects) > 0 and (select count(*) from public.tasks) > 0, 'After the change the session works again');
 select throws_ok($$select public.custom_access_token_hook(jsonb_build_object('user_id', '11111111-0000-0000-0000-000000000015', 'claims', '{}'::jsonb))$$,

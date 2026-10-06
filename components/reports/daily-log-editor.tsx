@@ -3,7 +3,7 @@ import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { saveDailyRow } from "@/lib/actions/reports";
-import { projectDayNumber, sheetDate, weekday, type DailyRow } from "@/lib/sheet";
+import { DAILY_HEAD, projectDayNumber, sheetDate, weekday, type DailyRow, type ReportOrder } from "@/lib/sheet";
 import type { TaskStatus } from "@/lib/auth/capabilities";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast";
@@ -15,19 +15,26 @@ type Person = { id: string; name: string };
 type Draft = { key: string | null; date: string; userId: string; taskId: string; text: string; status: string; progress: string; issues: string; next: string; remarks: string };
 
 /**
- * The project's Daily Follow Up with "Add Daily Update": the same table for every viewer, plus an editable row.
- * Everyone adds and edits their own row for today; an Admin may also pick another member and an earlier date.
- * The database enforces the same limits (report RLS and triggers), so this only decides what to offer.
+ * The project's Daily Reports sheet with "Add Daily Update": the same table for every viewer, plus an editable row.
+ * Everyone adds and edits their own row for today; earlier days are read-only. Only an Admin may pick another
+ * member and an earlier date, which is how an overdue report is filled in (`fill` opens that row ready to write).
+ * The server action and the database enforce the same limits (report RLS and triggers); this only decides what to offer.
  */
-export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, canAdd, people, tasks, from, query, filters, actions }: {
+export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, canAdd, people, tasks, from, query, order, fill, filters, actions }: {
   projectId: string; rows: DailyRow[]; today: string; start: string; meId: string; isAdmin: boolean; canAdd: boolean;
   people: Person[]; tasks: RowTask[]; from: string; query: string;
+  /** newest date first (the new row is offered above the list) or oldest first (below it) */
+  order: ReportOrder;
+  /** Admin: an overdue report to fill in, opened as a new row for that person and date */
+  fill?: { date: string; userId: string } | null;
   /** the page's filter form and other toolbar buttons, shown in the same toolbar as "Add Daily Update" */
   filters?: React.ReactNode; actions?: React.ReactNode;
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const saved = (date: string, userId: string) => rows.find((r) => r.reportId && r.date === date && r.userId === userId);
+  const empty = (date: string, userId: string): Draft => ({ key: null, date, userId, taskId: "", text: "", status: "", progress: "", issues: "", next: "", remarks: "" });
+  const [draft, setDraft] = useState<Draft | null>(() => (fill && isAdmin && !saved(fill.date, fill.userId) ? empty(fill.date, fill.userId) : null));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -40,12 +47,16 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
       issues: r.issues, next: r.edit?.nextTask ?? r.nextTask, remarks: r.remarks,
     };
   };
-  /** A new row; if that person already has a row for that date, it is opened instead (one row per person per day). */
+  /**
+   * A new row. My own row for today opens with what I already saved (it stays editable all day); for any other
+   * person or day a saved report is never replaced by a new row (see `clash`).
+   */
   const blank = (date: string, userId: string): Draft => {
-    const existing = rows.find((r) => r.reportId && r.date === date && r.userId === userId);
-    return existing ? { ...fromRow(existing), key: null }
-      : { key: null, date, userId, taskId: "", text: "", status: "", progress: "", issues: "", next: "", remarks: "" };
+    const existing = userId === meId && date === today ? saved(date, userId) : undefined;
+    return existing ? { ...fromRow(existing), key: null } : empty(date, userId);
   };
+  /** A new row for a person and day that already has a saved report: not saved; that row is edited instead. */
+  const clash = (d: Draft) => !d.key && !(d.userId === meId && d.date === today) && Boolean(saved(d.date, d.userId));
   const open = () => { setError(null); setDraft(blank(today, people.some((p) => p.id === meId) ? meId : people[0]?.id ?? meId)); };
 
   async function save() {
@@ -53,6 +64,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
     const t = tasks.find((x) => x.id === draft.taskId);
     setSaving(true);
     const r = await saveDailyRow({
+      report_id: draft.key ? rows.find((x) => x.key === draft.key)?.reportId ?? null : null,
       project_id: projectId, user_id: draft.userId, report_date: draft.date, task_id: t?.id ?? null, update_text: draft.text,
       status: t ? ((t.choices.includes(draft.status as TaskStatus) ? draft.status : t.status) as TaskStatus) : null,
       progress: t?.is_leaf && draft.progress !== "" ? Math.max(0, Math.min(100, Number(draft.progress))) : null,
@@ -63,6 +75,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
     toast({ ok: true, message: "Daily update saved" });
     setDraft(null);
     if (draft.date < from) router.push(`?${new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(query)), from: draft.date })}`);
+    else if (fill) router.replace(`?${query}`);   // the overdue report is saved: drop ?fill= so the row isn't offered again
     else router.refresh();
   }
 
@@ -89,8 +102,8 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
             <option value="">{mine.length ? "Choose a task" : "No open task assigned"}</option>
             {mine.map((t) => <option key={t.id} value={t.id}>{t.sub ? `${t.label} — ${t.sub}` : t.label}</option>)}
           </select>
+          <textarea aria-label="Daily Sub Task" rows={4} className={`${box} mt-1`} placeholder={"Work done that day\na. …\nb. …"} value={d.text} onChange={(e) => set({ text: e.target.value })} />
         </td>
-        <td className={cell}><textarea aria-label="Daily Sub Task" rows={4} className={box} placeholder={"a. …\nb. …"} value={d.text} onChange={(e) => set({ text: e.target.value })} /></td>
         <td className={`${cell} text-center`}>
           {isAdmin && !d.key ? (
             <select aria-label="Assigned To" className={box} value={d.userId} onChange={(e) => setDraft(blank(d.date, e.target.value))}>
@@ -118,12 +131,13 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
         <td className={cell}><textarea aria-label="Remarks" rows={4} className={box} value={d.remarks} onChange={(e) => set({ remarks: e.target.value })} /></td>
       </tr>,
       <tr key="editor-actions">
-        <td colSpan={10} className="border border-line bg-steel-wash/60 px-3 py-2">
+        <td colSpan={DAILY_HEAD.length} className="border border-line bg-steel-wash/60 px-3 py-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={save} pending={saving}>Save row</Button>
+            <Button size="sm" onClick={save} pending={saving} disabled={clash(d)}>Save row</Button>
             <Button size="sm" variant="secondary" onClick={() => setDraft(null)} disabled={saving}>Cancel</Button>
-            {!d.key && rows.some((r) => r.reportId && r.date === d.date && r.userId === d.userId)
-              ? <span className="text-sm text-ink-soft">This person already has a row for this day; saving updates it.</span> : null}
+            {clash(d) ? <span role="alert" className="text-sm text-signal-red">This person already has a saved report for this day. It is not replaced; cancel and use Edit on that row.</span>
+              : !d.key && saved(d.date, d.userId) ? <span className="text-sm text-ink-soft">You already have a row for today; saving updates it.</span>
+              : !d.key && d.date < today ? <span className="text-sm text-ink-soft">Filling in the report for {sheetDate(d.date)} on this person's behalf.</span> : null}
             {error ? <span role="alert" className="text-sm text-signal-red">{error}</span> : null}
           </div>
         </td>
@@ -146,7 +160,8 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
         rowAction={(r) => (canEdit(r) && !draft ? (
           <button type="button" className="text-xs text-steel hover:underline" onClick={() => { setError(null); setDraft(fromRow(r)); }}>Edit</button>
         ) : null)}
-        footer={draft && !draft.key ? editor(draft) : null} />
+        lead={draft && !draft.key && order === "desc" ? editor(draft) : null}
+        footer={draft && !draft.key && order === "asc" ? editor(draft) : null} />
       {canAdd && !draft ? <button type="button" onClick={open} className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-line py-2 text-sm text-steel hover:border-steel hover:bg-steel-wash"><Plus size={16} />Add New Row</button> : null}
     </div>
   );

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireProjectManagerView } from "@/lib/auth/session";
 import { getMyProjectsDashboard } from "@/lib/data/dashboards";
+import { getOverdueReports } from "@/lib/data/overdue";
+import { OverdueReports } from "@/components/reports/overdue-reports";
 import { CountLink, EmptyState, Kpi, PageHeader, Section, Table } from "@/components/ui/misc";
 import { ProjectHealthTable } from "@/components/dashboards/project-table";
 import { CompletionBars } from "@/components/data/charts";
@@ -12,7 +14,7 @@ export const metadata: Metadata = { title: "My Projects" };
 
 /** PM dashboard (Frontend Blueprint §7): one RPC, my_projects_dashboard(). */
 export default async function PmDashboard() {
-  await requireProjectManagerView();
+  const s = await requireProjectManagerView();
   const d = await getMyProjectsDashboard();
   const red = d.projects.reduce((a, p) => a + (p.red_tasks ?? 0), 0);
   const overdue = d.projects.reduce((a, p) => a + (p.overdue_tasks ?? 0), 0);
@@ -23,9 +25,11 @@ export default async function PmDashboard() {
   const projectOfTask = (code: string) => idByCode.get(code.replace(/-T\d+.*$/, ""));
   const reportsToday = (pid: string | null | undefined, user: string) => `/projects/${pid}/daily-reports?user=${user}&from=${today}&to=${today}`;
   if (!d.projects.length) return (<><PageHeader title="My Projects" /><EmptyState title="No projects to manage yet">You'll see projects here once you're a PM on one.</EmptyState></>);
+  const overdueReports = await getOverdueReports({ projectIds: d.projects.map((p) => p.project_id).filter((x): x is string => Boolean(x)) });
   return (
     <>
       <PageHeader title="My Projects" lead="Where work is slipping across the projects you manage." />
+      <OverdueReports items={overdueReports} canFill={s.isAdmin} />
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Projects" value={d.projects.length} href="/projects?managed=1" />
         <Kpi label="Red tasks" value={red} signal={red ? "red" : "neutral"} href={red ? "/my-tasks?filter=red&managed=1" : undefined} />

@@ -20,7 +20,7 @@ type Existing = {
 
 const schema = z.object({
   task_id: z.string(),
-  update_text: z.string().trim().min(1, "Write the Daily Sub Task: what you did today").max(5000),
+  update_text: z.string().trim().min(1, "Write the Task: what you did today").max(5000),
   status: z.string(),
   progress: z.string(),
   issues: z.string().max(3000),
@@ -30,7 +30,7 @@ const schema = z.object({
 type V = z.infer<typeof schema>;
 
 /**
- * Today's row of the Daily Follow Up for one project (one per person, project and day; editable until it locks).
+ * Today's row of the Daily Reports sheet for one project (one per person, project and day; editable until it locks).
  * The Main Task is one of my open tasks or subtasks; its Status (and progress) is applied to the task as me.
  */
 export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }: {
@@ -86,15 +86,13 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
           <tbody>
             <tr>
               <DayCells date={date} dayNo={dayNo} />
-              <td className={`${cell} min-w-44`}>
+              <td className={`${cell} min-w-72`}>
                 <select aria-label="Main Task" className={box} value={taskId} onChange={(e) => pickTask(e.target.value)}>
                   <option value="">{tasks.length ? "Choose your task" : "No task assigned to you yet"}</option>
                   {tasks.map((t) => <option key={t.id} value={t.id}>{t.sub ? `${t.label} — ${t.sub}` : t.label}</option>)}
                 </select>
                 {task?.sub ? <p className="mt-1 text-xs text-ink-soft">Subtask {task.sub}</p> : null}
-              </td>
-              <td className={`${cell} min-w-52`}>
-                <textarea aria-label="Daily Sub Task" rows={4} className={box} placeholder={"a. …\nb. …"} {...f.register("update_text")} />
+                <textarea aria-label="Daily Sub Task" rows={4} className={`${box} mt-1.5`} placeholder={"Work done today\na. …\nb. …"} {...f.register("update_text")} />
                 {f.formState.errors.update_text ? <p className="mt-1 text-xs text-signal-red">{f.formState.errors.update_text.message}</p> : null}
               </td>
               <td className={`${cell} whitespace-nowrap text-center align-middle`}>{me}</td>

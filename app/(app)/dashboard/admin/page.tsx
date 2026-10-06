@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/session";
 import { getAdminDashboard } from "@/lib/data/dashboards";
+import { getOverdueReports } from "@/lib/data/overdue";
+import { OverdueReports } from "@/components/reports/overdue-reports";
 import { CountLink, Kpi, PageHeader, Section, Table } from "@/components/ui/misc";
 import { ProjectHealthTable } from "@/components/dashboards/project-table";
 import { LinkButton } from "@/components/ui/button";
@@ -13,7 +15,7 @@ export const metadata: Metadata = { title: "Admin dashboard" };
 /** Admin dashboard (Frontend Blueprint §9): admin_dashboard(). Admin has complete system access. Every figure opens its records. */
 export default async function AdminDashboard() {
   await requireAdmin();
-  const d = await getAdminDashboard();
+  const [d, overdue] = await Promise.all([getAdminDashboard(), getOverdueReports()]);
   const o = d.overview;
   const failing = d.jobs.filter((j) => j.last_error);
   return (
@@ -25,6 +27,7 @@ export default async function AdminDashboard() {
           <span className="font-medium">A scheduled job failed:</span> {failing.map((j) => j.job).join(", ")}. <Link href="/admin/data" className="text-steel hover:underline">Open Data and jobs</Link>
         </div>
       ) : null}
+      <OverdueReports items={overdue} canFill />
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Active projects" value={o?.projects_active ?? 0} href="/projects?status=Active" />
         <Kpi label="Projects at risk" value={o?.projects_at_risk ?? 0} signal={o?.projects_at_risk ? "red" : "neutral"} href={o?.projects_at_risk ? "/projects?risk=1" : undefined} />

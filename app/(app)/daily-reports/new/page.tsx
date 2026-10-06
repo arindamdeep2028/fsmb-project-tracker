@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireSession } from "@/lib/auth/session";
 import { getReportFormData, projectDailyLog, projectStart } from "@/lib/data/reports";
 import { getSettings } from "@/lib/data/admin";
-import { canManageProject, taskCaps } from "@/lib/auth/capabilities";
+import { canManageProject, reportOrder, taskCaps } from "@/lib/auth/capabilities";
 import { EmptyState, PageHeader, Section } from "@/components/ui/misc";
 import { DailyReportForm, type MainTaskOption } from "@/components/reports/daily-report-form";
 import { DailyLogTable } from "@/components/reports/daily-log-table";
@@ -31,7 +31,7 @@ export default async function NewReportPage({ searchParams }: { searchParams: Pr
     sub: t.parent ? `${letterOf(t.code)}. ${t.title}` : null,
     status: t.status, choices: taskCaps(s, t, manages, t.is_leaf).statuses, is_leaf: t.is_leaf, progress_pct: t.progress_pct,
   }));
-  const recent = await projectDailyLog(project, { from: daysAgo(13), to: today, user: { id: s.userId, name: s.profile.full_name }, workdays: settings?.workdays });
+  const recent = await projectDailyLog(project, { from: daysAgo(13), to: today, user: { id: s.userId, name: s.profile.full_name }, workdays: settings?.workdays, order: reportOrder(s) });
   const locked = Boolean(d.existing?.locked);
   return (
     <>

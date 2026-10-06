@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { requireHeadOrAdmin } from "@/lib/auth/session";
 import { getDepartmentDashboard } from "@/lib/data/dashboards";
 import { getDepartments } from "@/lib/data/projects";
+import { getOverdueReports } from "@/lib/data/overdue";
+import { OverdueReports } from "@/components/reports/overdue-reports";
 import { EmptyState, Kpi, PageHeader, Section } from "@/components/ui/misc";
 import { ProjectHealthTable } from "@/components/dashboards/project-table";
 import { ScoreTable } from "@/components/performance/score-table";
@@ -31,10 +33,12 @@ export default async function DepartmentDashboard({ searchParams }: { searchPara
   // every figure opens its records: projects of this department, or tasks filtered the same way, in this window
   const dept = d.window.department_id;
   const win = `from=${d.window.from}&to=${d.window.to}`;
+  const overdue = await getOverdueReports({ departmentId: dept });
   return (
     <>
       <PageHeader title={dep?.department_name ?? "Department"} lead={`Window ${fmtDate(d.window.from)} to ${fmtDate(d.window.to)}`}
         actions={<WindowPicker from={d.window.from} to={d.window.to} extra={picker} />} />
+      <OverdueReports items={overdue} canFill={s.isAdmin} />
       <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Active projects" value={dep?.active_projects ?? 0} href={dep?.active_projects ? `/projects?dept=${dept}&status=Active` : undefined} />
         <Kpi label="Department progress" value={pct(dep?.department_progress_pct)} href={dep?.active_projects ? `/projects?dept=${dept}&status=Active` : undefined} />

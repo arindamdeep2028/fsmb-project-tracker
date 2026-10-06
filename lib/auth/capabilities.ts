@@ -33,6 +33,13 @@ export function projectRolesFor(role: Enums<"user_role">, canAddPm: boolean): En
 export function canExportCsv(s: Session): boolean {
   return s.isAdmin || s.headedDepartmentIds.length > 0 || s.pmProjectIds.length > 0;
 }
+/**
+ * Daily report lists: an Admin, Department Head or Project Manager reads newest date first; an Engineer reads
+ * oldest first, from Day 1.
+ */
+export function reportOrder(s: Session): "asc" | "desc" {
+  return canExportCsv(s) || s.profile.role !== "engineer" ? "desc" : "asc";
+}
 
 const FORWARD: Record<TaskStatus, TaskStatus[]> = {
   "Not started": ["Plan submitted", "In progress", "Blocked", "Completed"],

@@ -5,6 +5,8 @@ import { type ActionResult, fail } from "@/lib/errors";
 import { ALLOWED_TYPES, BUCKET, MAX_BYTES } from "@/lib/storage";
 import { dailyRowInput, firstIssue, reportInput, type DailyRowInput, type ReportInput } from "@/lib/validation";
 import { dhakaToday } from "@/lib/time";
+import { getSession } from "@/lib/auth/session";
+import { projectStart } from "@/lib/data/reports";
 import type { Json } from "@/types/database";
 
 const refresh = () => revalidatePath("/", "layout");
@@ -27,35 +29,58 @@ export async function saveReport(input: ReportInput): Promise<ActionResult<{ id:
 }
 
 /**
- * Adds or edits one row of the Daily Follow Up from the Daily reports tab (one row per person, project and day).
+ * Adds or edits one row of the Daily Reports sheet from the Daily reports tab (one row per person, project and day).
  * Your own row for today goes through save_daily_report, exactly like the update form. A row for another person
- * or another date is written to the tables directly; RLS and the report triggers allow that only for an Admin,
- * so every other user stays limited to their own row for today.
+ * or an earlier date (an overdue report) is for an Admin only: checked here, and again by RLS and the report
+ * triggers, so every other user stays limited to their own row for today. A new row is inserted, never upserted:
+ * if that person already has a report for that project and date it is left as it is.
  */
 export async function saveDailyRow(input: DailyRowInput): Promise<ActionResult<{ id: string }>> {
   const p = dailyRowInput.safeParse(input);
   if (!p.success) return { ok: false, message: firstIssue(p.error) };
   const v = p.data;
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return { ok: false, message: "Sign in again to save." };
+  const s = await getSession();
+  if (!s || !s.profile.active) return { ok: false, message: "Sign in again to save." };
+  const today = dhakaToday();
   const item = v.task_id ? { task_id: v.task_id, status_after: v.status, progress_after: v.progress, note: null } : null;
 
-  if (v.user_id === auth.user.id && v.report_date === dhakaToday()) {
+  if (v.report_date > today) return { ok: false, message: "A daily report can't be dated after today." };
+  if (v.user_id === s.userId && v.report_date === today) {
     return saveReport({
       project_id: v.project_id, update_text: v.update_text, issues: v.issues, next_task_id: null,
       next_task_text: v.next_task_text, remarks: v.remarks, items: item ? [item] : [],
     });
   }
+  if (!s.isAdmin) return { ok: false, message: "Only an Admin can add or change a daily report for an earlier date or for another person." };
 
-  const { data: report, error } = await supabase.from("daily_reports")
-    .upsert({
-      user_id: v.user_id, project_id: v.project_id, report_date: v.report_date, day_name: "", // day_name: set by trigger
-      update_text: v.update_text,
-      issues: v.issues || null, next_task_id: null, next_task_text: v.next_task_text || null, remarks: v.remarks || null,
-    }, { onConflict: "user_id,project_id,report_date" })
-    .select("id").single();
-  if (error) return fail(error);
+  const supabase = await createClient();
+  const fields = { update_text: v.update_text, issues: v.issues || null, next_task_id: null, next_task_text: v.next_task_text || null, remarks: v.remarks || null };
+  let report: { id: string };
+  if (v.report_id) {
+    const { data, error } = await supabase.from("daily_reports").update(fields)
+      .eq("id", v.report_id).eq("user_id", v.user_id).eq("project_id", v.project_id).eq("report_date", v.report_date)
+      .select("id").maybeSingle();
+    if (error) return fail(error);
+    if (!data) return { ok: false, message: "Not found, or you no longer have access to it." };
+    report = data;
+  } else {
+    const [{ data: project }, { data: member }] = await Promise.all([
+      supabase.from("projects").select("id, start_date, created_at").eq("id", v.project_id).maybeSingle(),
+      supabase.from("project_members").select("user_id").eq("project_id", v.project_id).eq("user_id", v.user_id).is("removed_at", null).maybeSingle(),
+    ]);
+    if (!project) return { ok: false, message: "Not found, or you no longer have access to it." };
+    if (!member) return { ok: false, message: "Choose a current member of this project." };
+    if (v.report_date < projectStart(project)) return { ok: false, message: "That date is before the project's Day 1." };
+    const { data, error } = await supabase.from("daily_reports")
+      .insert({ user_id: v.user_id, project_id: v.project_id, report_date: v.report_date, day_name: "", ...fields }) // day_name: set by trigger
+      .select("id").single();
+    if (error) {
+      return error.code === "23505"
+        ? { ok: false, message: "A daily report is already saved for this person, project and date. It was not changed; open that row to edit it." }
+        : fail(error);
+    }
+    report = data;
+  }
   let del = supabase.from("daily_report_items").delete().eq("report_id", report.id);
   if (item) del = del.neq("task_id", item.task_id);
   const { error: dErr } = await del;

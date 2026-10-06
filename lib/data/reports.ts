@@ -2,13 +2,15 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { BUCKET } from "@/lib/storage";
 import { dhakaToday, fmt } from "@/lib/time";
-import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow } from "@/lib/sheet";
+import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow, type ReportOrder } from "@/lib/sheet";
 
-export async function listMyReports(userId: string, page = 0) {
+/** My saved reports, in the viewer's order (lib/auth/capabilities reportOrder). */
+export async function listMyReports(userId: string, order: ReportOrder = "desc", page = 0) {
   const supabase = await createClient();
   const { data } = await supabase.from("daily_reports")
-    .select("id, report_date, day_name, update_text, locked, submitted_at, project:projects(code, name)")
-    .eq("user_id", userId).order("report_date", { ascending: false }).range(page * 50, page * 50 + 49);
+    .select("id, report_date, day_name, update_text, locked, submitted_at, project:projects(code, name, start_date, created_at)")
+    .eq("user_id", userId).order("report_date", { ascending: order === "asc" }).order("submitted_at", { ascending: order === "asc" })
+    .range(page * 200, page * 200 + 199);
   return data ?? [];
 }
 
@@ -83,11 +85,12 @@ export function projectStart(p: { start_date: string | null; created_at: string 
 
 /**
  * The project's Daily Follow Up for a date range: one row per person and date, plus an empty row for a date
- * nobody (or not the chosen person) reported on. RLS decides which reports the viewer reads.
+ * nobody (or not the chosen person) reported on. RLS decides which reports the viewer reads. `order`: oldest
+ * date first (default) or newest first.
  */
 export async function projectDailyLog(
   project: { id: string; start_date: string | null; created_at: string },
-  opts: { from: string; to: string; user?: { id: string; name: string } | null; workdays?: number[] },
+  opts: { from: string; to: string; user?: { id: string; name: string } | null; workdays?: number[]; order?: ReportOrder },
 ): Promise<DailyRow[]> {
   const start = projectStart(project);
   const from = opts.from < start ? start : opts.from;           // the sheet starts at Day 1
@@ -100,7 +103,9 @@ export async function projectDailyLog(
   const { data } = await q;
   const byDate = new Map<string, NonNullable<typeof data>>();
   (data ?? []).forEach((r) => byDate.set(r.report_date, [...(byDate.get(r.report_date) ?? []), r]));
-  return dateRange(from, opts.to).flatMap((date): DailyRow[] => {
+  const dates = dateRange(from, opts.to);
+  if (opts.order === "desc") dates.reverse();
+  return dates.flatMap((date): DailyRow[] => {
     const base = { date, dayNo: projectDayNumber(start, date), offDay: isOffDay(date, opts.workdays) };
     const reports = byDate.get(date) ?? [];
     if (!reports.length) {

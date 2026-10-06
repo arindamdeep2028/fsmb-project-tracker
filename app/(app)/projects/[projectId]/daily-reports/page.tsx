@@ -3,7 +3,7 @@ import { projectDailyLog, projectStart } from "@/lib/data/reports";
 import { getMembers } from "@/lib/data/projects";
 import { getSettings } from "@/lib/data/admin";
 import { createClient } from "@/lib/supabase/server";
-import { taskCaps } from "@/lib/auth/capabilities";
+import { reportOrder, taskCaps } from "@/lib/auth/capabilities";
 import { DailyLogEditor, type RowTask } from "@/components/reports/daily-log-editor";
 import { DailyLogCsv } from "@/components/reports/daily-log-csv";
 import { letterOf, taskLabel } from "@/lib/sheet";
@@ -12,19 +12,23 @@ import { daysAgo, dhakaToday } from "@/lib/time";
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * The project's Daily Follow Up (workbook layout), the same page for every role. Every member reads every member's
- * updates (RLS) and adds or edits their own row in place ("Add Daily Update"); an Admin may also write any member's
- * row for any day. CSV for managers.
+ * The project's Daily Reports sheet (workbook layout), the same page for every role. Every member reads every
+ * member's updates (RLS) and adds or edits their own row for today in place ("Add Daily Update"); earlier days are
+ * read-only. Only an Admin may write any member's row for an earlier day: ?user=&fill=<date> (from an overdue
+ * notification) opens that row ready to fill in. Admin, Department Head and Project Manager read newest first;
+ * an Engineer reads oldest first, from Day 1. CSV for managers.
  */
 export default async function ProjectReportsPage({ params, searchParams }: {
-  params: Promise<{ projectId: string }>; searchParams: Promise<{ user?: string; from?: string; to?: string }>;
+  params: Promise<{ projectId: string }>; searchParams: Promise<{ user?: string; from?: string; to?: string; fill?: string }>;
 }) {
   const { projectId } = await params;
   const sp = await searchParams;
   const { s, project, manages } = await projectContext(projectId);
   const today = dhakaToday();
   let to = sp.to && ISO.test(sp.to) ? sp.to : today;
-  let from = sp.from && ISO.test(sp.from) ? sp.from : daysAgo(13);
+  const order = reportOrder(s);
+  const start = projectStart(project);
+  let from = sp.from && ISO.test(sp.from) ? sp.from : order === "asc" && start <= today ? start : daysAgo(13);
   if (from > to) [from, to] = [to, from];
   if ((Date.parse(to) - Date.parse(from)) / 864e5 > 92) from = new Date(Date.parse(to) - 92 * 864e5).toISOString().slice(0, 10);
   const supabase = await createClient();
@@ -35,7 +39,7 @@ export default async function ProjectReportsPage({ params, searchParams }: {
     supabase.from("task_rollup").select("task_id, is_leaf").eq("project_id", projectId),
   ]);
   const who = members.find((m) => m.user_id === sp.user);
-  const rows = await projectDailyLog(project, { from, to, user: who ? { id: who.user_id, name: who.full_name } : null, workdays: settings?.workdays });
+  const rows = await projectDailyLog(project, { from, to, user: who ? { id: who.user_id, name: who.full_name } : null, workdays: settings?.workdays, order });
 
   const isMember = s.memberProjectIds.includes(projectId);
   const current = members.filter((m) => !m.removed_at);
@@ -57,9 +61,13 @@ export default async function ProjectReportsPage({ params, searchParams }: {
       };
     });
   const query = new URLSearchParams({ ...(who ? { user: who.user_id } : {}), from, to }).toString();
+  // an overdue report to fill in: Admin only, a past day of the project, a current member
+  const fill = s.isAdmin && sp.fill && ISO.test(sp.fill) && sp.fill < today && sp.fill >= start && who && people.some((p) => p.id === who.user_id)
+    ? { date: sp.fill, userId: who.user_id } : null;
 
   return (
-    <DailyLogEditor projectId={projectId} rows={rows} today={today} start={projectStart(project)} meId={s.userId} isAdmin={s.isAdmin}
+    <DailyLogEditor key={fill ? `${fill.userId}-${fill.date}` : "log"} order={order} fill={fill}
+      projectId={projectId} rows={rows} today={today} start={start} meId={s.userId} isAdmin={s.isAdmin}
       canAdd={(isMember || s.isAdmin) && !project.archived && people.length > 0} people={people} tasks={rowTasks} from={from} query={query}
       filters={
         <form method="get" className="flex flex-wrap items-end gap-3">

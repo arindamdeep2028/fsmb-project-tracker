@@ -2,6 +2,7 @@ import Link from "next/link";
 import { projectContext } from "@/lib/auth/project-guard";
 import { getProjectProgress } from "@/lib/data/projects";
 import { projectReportFeed } from "@/lib/data/reports";
+import { reportOrder } from "@/lib/auth/capabilities";
 import { createClient } from "@/lib/supabase/server";
 import { Kpi, Meter, Section } from "@/components/ui/misc";
 import { LinkButton } from "@/components/ui/button";
@@ -18,6 +19,8 @@ export default async function ProjectOverview({ params }: { params: Promise<{ pr
     s.memberProjectIds.includes(projectId) ? supabase.rpc("my_contribution", { p_project: projectId }) : Promise.resolve({ data: null }),
   ]);
   const c = mine.data?.[0];
+  // the latest six reports: newest first for managers, oldest first for an engineer
+  const recent = reportOrder(s) === "asc" ? feed.slice(0, 6).reverse() : feed.slice(0, 6);
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -41,7 +44,7 @@ export default async function ProjectOverview({ params }: { params: Promise<{ pr
         <Section title="Recent daily reports" aside={<Link href={`/projects/${projectId}/daily-reports`} className="text-sm text-steel hover:underline">All reports</Link>}>
           {feed.length ? (
             <ul className="divide-y divide-line-soft">
-              {feed.slice(0, 6).map((r) => (
+              {recent.map((r) => (
                 <li key={r.id} className="py-2.5">
                   <Link href={`/daily-reports/${r.id}`} className="font-medium hover:text-steel hover:underline">{r.author?.full_name}</Link>
                   <span className="ml-2 text-sm text-ink-soft">{fmtDay(r.report_date)}</span>

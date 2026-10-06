@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireSession } from "@/lib/auth/session";
-import { listMyReports } from "@/lib/data/reports";
+import { listMyReports, projectStart } from "@/lib/data/reports";
 import { listProjects } from "@/lib/data/projects";
-import { canManageProject } from "@/lib/auth/capabilities";
+import { canManageProject, reportOrder } from "@/lib/auth/capabilities";
+import { projectDayNumber } from "@/lib/sheet";
 import { Badge, EmptyState, PageHeader, Section, Table } from "@/components/ui/misc";
 import { LinkButton } from "@/components/ui/button";
 import { fmtDate, fmtDay } from "@/lib/time";
@@ -13,12 +14,16 @@ export const metadata: Metadata = { title: "Daily Reports" };
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-/** My reports and team links. Dashboard figures open it with ?user=&from=&to= for one person's reports (RLS-limited). */
+/**
+ * My reports and team links. Dashboard figures open it with ?user=&from=&to= for one person's reports (RLS-limited).
+ * Admin, Department Head and Project Manager read newest first; an Engineer reads oldest first, from Day 1.
+ */
 export default async function DailyReportsPage({ searchParams }: { searchParams: Promise<{ user?: string; from?: string; to?: string }> }) {
   const s = await requireSession();
   const sp = await searchParams;
-  if (sp.user && /^[0-9a-f-]{36}$/i.test(sp.user)) return <PersonReports user={sp.user} from={sp.from && ISO.test(sp.from) ? sp.from : undefined} to={sp.to && ISO.test(sp.to) ? sp.to : undefined} />;
-  const [mine, projects] = await Promise.all([listMyReports(s.userId), listProjects()]);
+  const order = reportOrder(s);
+  if (sp.user && /^[0-9a-f-]{36}$/i.test(sp.user)) return <PersonReports user={sp.user} newestFirst={order === "desc"} from={sp.from && ISO.test(sp.from) ? sp.from : undefined} to={sp.to && ISO.test(sp.to) ? sp.to : undefined} />;
+  const [mine, projects] = await Promise.all([listMyReports(s.userId, order), listProjects()]);
   const managed = projects.filter((p) => canManageProject(s, p));
   return (
     <>
@@ -28,10 +33,11 @@ export default async function DailyReportsPage({ searchParams }: { searchParams:
         <Section title="My reports">
           {mine.length ? (
             <Table>
-              <thead><tr><th>Date</th><th>Project</th><th>Update</th><th /></tr></thead>
+              <thead><tr><th>Day</th><th>Date</th><th>Project</th><th>Update</th><th /></tr></thead>
               <tbody>
                 {mine.map((r) => (
                   <tr key={r.id}>
+                    <td className="whitespace-nowrap text-ink-soft">{r.project ? `Day ${projectDayNumber(projectStart(r.project), r.report_date) ?? "—"}` : "—"}</td>
                     <td className="whitespace-nowrap"><Link href={`/daily-reports/${r.id}`} className="font-medium hover:text-steel hover:underline">{fmtDay(r.report_date)}</Link></td>
                     <td>{r.project?.code}</td>
                     <td className="max-w-md truncate text-ink-soft">{r.update_text}</td>
@@ -57,11 +63,11 @@ export default async function DailyReportsPage({ searchParams }: { searchParams:
 }
 
 /** One person's daily reports in a window — only those in projects the viewer can see (reports RLS). */
-async function PersonReports({ user, from, to }: { user: string; from?: string; to?: string }) {
+async function PersonReports({ user, from, to, newestFirst }: { user: string; from?: string; to?: string; newestFirst: boolean }) {
   const supabase = await createClient();
   let q = supabase.from("daily_reports")
     .select("id, report_date, update_text, locked, project:projects(code, name), daily_report_items(count)")
-    .eq("user_id", user).order("report_date", { ascending: false }).limit(200);
+    .eq("user_id", user).order("report_date", { ascending: !newestFirst }).limit(200);
   if (from) q = q.gte("report_date", from);
   if (to) q = q.lte("report_date", to);
   const [{ data: rows }, { data: person }] = await Promise.all([q, supabase.from("profiles").select("full_name").eq("id", user).maybeSingle()]);

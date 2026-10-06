@@ -2,7 +2,7 @@ import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 
 /**
  * Helpers for the two workbook layouts the app mirrors: the project Task list
- * (SL | Task | Sub Task | …) and the Daily Follow Up (Day | Date | Day | Main Task | …).
+ * (SL | Task | Sub Task | …) and the Daily Reports sheet (Day | Date | Days | Task | …).
  * Dates are Dhaka calendar dates ("yyyy-MM-dd"); nothing here counts working days.
  */
 
@@ -63,3 +63,18 @@ export type DailyRow = {
   nextTask: string;
   remarks: string;
 };
+
+/** Newest date first (Admin, Department Head, Project Manager) or oldest first from Day 1 (Engineer). */
+export type ReportOrder = "asc" | "desc";
+
+/** Columns of the Daily Reports sheet, on screen and in the CSV. */
+export const DAILY_HEAD = ["Day", "Date", "Days", "Task", "Assigned To", "Status", "Issues", "Next Task", "Remarks"] as const;
+
+/** One line of the sheet as CSV cells, in the same column order. */
+export function dailyCsvLine(r: DailyRow): string[] {
+  return [
+    r.dayNo ? `Day ${r.dayNo}` : "", sheetDate(r.date), weekday(r.date),
+    [...r.mainTask.map((m) => (m.sub ? `${m.label} / ${m.sub}` : m.label)), r.dailySubTask].filter(Boolean).join("\n"), r.assignedTo,
+    r.mainTask.map((m) => m.status ?? "").join("\n"), r.issues, r.nextTask, r.remarks,
+  ];
+}

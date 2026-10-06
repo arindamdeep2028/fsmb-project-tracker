@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireSession } from "@/lib/auth/session";
 import { getMyDashboard } from "@/lib/data/dashboards";
+import { getOverdueReports } from "@/lib/data/overdue";
+import { OverdueReports } from "@/components/reports/overdue-reports";
 import { CountLink, Kpi, Meter, PageHeader, Section } from "@/components/ui/misc";
 import { TaskList } from "@/components/lists/task-list";
 import { ProgressTrend } from "@/components/data/charts";
@@ -14,13 +16,15 @@ export const metadata: Metadata = { title: "My Dashboard" };
 /** Engineer dashboard (Frontend Blueprint §6): one RPC, my_dashboard(). */
 export default async function EngineerDashboard() {
   const s = await requireSession();
-  const d = await getMyDashboard();
+  const [d, overdue] = await Promise.all([getMyDashboard(), getOverdueReports({ userId: s.userId })]);
   const due = d.projects.filter((p) => p.report_expected_today && !p.report_submitted_today);
   const open = d.assigned_tasks.filter((t) => t.status !== "Completed");
   const projectOf = new Map(d.assigned_tasks.map((t) => [t.task_id, t.project_id]));
   return (
     <>
       <PageHeader title={`Hello, ${s.profile.full_name.split(" ")[0]}`} lead={`${fmtDay(dhakaToday())}, Dhaka time`} />
+
+      <OverdueReports items={overdue} canFill={s.isAdmin} own />
 
       {d.report_expected_today ? (
         due.length ? (

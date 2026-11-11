@@ -21,6 +21,8 @@ const EMPTY: PerformanceRecords = { assigned: [], completed: [], ontime: [], lat
  * The records behind my own performance figures for a window — read as the signed-in user, so row-level
  * security decides what comes back (always only my own tasks and log entries; a task in a project I no longer
  * belong to is counted by the score but not shown). Nothing is written.
+ * Also used by an Admin for someone else (/performance/<id>); that page is Admin-only, and this function must
+ * not be called with another person's id for anyone else (RLS lets project members read each other's tasks).
  */
 export async function myPerformanceRecords(userId: string, from: string, to: string): Promise<{ records: PerformanceRecords; error: boolean }> {
   if (!isIsoDate(from) || !isIsoDate(to) || from > to) return { records: EMPTY, error: false };

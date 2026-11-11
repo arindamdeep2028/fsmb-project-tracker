@@ -34,11 +34,15 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
       </select>
     </label>
   );
+  // Admin: each row opens that person's performance for the same dates (and remembers the department for "Back").
+  const profile = s.isAdmin
+    ? { base: "/performance/", query: `?${new URLSearchParams({ from: v.from, to: v.to, ...(v.departmentId ? { dept: v.departmentId } : {}) })}` }
+    : undefined;
   return (
     <>
-      <PageHeader title="Performance" lead="Scores for the chosen window. Open a person to see their log." actions={<WindowPicker from={v.from} to={v.to} extra={select} />} />
+      <PageHeader title="Performance" lead={s.isAdmin ? "Scores for the chosen window. Open a person to see their performance." : "Scores for the chosen window. Open a person to see their log."} actions={<WindowPicker from={v.from} to={v.to} extra={select} />} />
       {v.rows
-        ? <ScoreTable rows={v.rows} csvName={`fsmb-performance-${v.from}-${v.to}`} logBase={s.isAdmin ? "/admin/log?person=" : undefined} />
+        ? <ScoreTable rows={v.rows} csvName={`fsmb-performance-${v.from}-${v.to}`} profile={profile} />
         : <div data-testid="performance-error"><FormMessage result={{ ok: false, message: v.error ?? "The performance scores couldn't be loaded." }} /></div>}
     </>
   );

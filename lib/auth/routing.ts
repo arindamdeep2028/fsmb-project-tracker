@@ -25,6 +25,8 @@ export function routeFor(o: { path: string; signedIn: boolean; role?: string; ac
 
   if ((path.startsWith("/admin") || path.startsWith("/dashboard/admin")) && role !== "admin") return { do: "landing" };
   if ((path.startsWith("/dashboard/department") || path === "/performance") && role !== "admin" && role !== "dept_head") return { do: "landing" };
+  // One person's performance (/performance/<id>): Admin only. The page checks the live profile again.
+  if (path.startsWith("/performance/") && role !== "admin") return { do: "landing" };
   if (path.startsWith("/dashboard/projects") && role === "engineer") return { do: "redirect", to: "/dashboard" };
   return { do: "pass" };
 }

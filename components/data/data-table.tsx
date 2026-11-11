@@ -1,16 +1,30 @@
 "use client";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { flexRender, getCoreRowModel, getFilteredRowModel, getSortedRowModel, useReactTable, type ColumnDef, type SortingState } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/form";
+import { cn } from "@/lib/utils";
 
 export type { ColumnDef };
 
-/** Sortable, filterable table. CSV export only when `csvName` is given — pages pass it to managers only (v2 §14.8). */
-export function DataTable<T extends Record<string, unknown>>({ data, columns, csvName, filterPlaceholder = "Filter", empty = "Nothing to show." }: {
+/**
+ * Sortable, filterable table. CSV export only when `csvName` is given — pages pass it to managers only (v2 §14.8).
+ * `rowHref`: a click anywhere on the row opens that page (Ctrl/⌘-click: a new tab). Links and buttons inside the
+ * row keep their own target; the page should also link one cell to the same address for keyboard users.
+ */
+export function DataTable<T extends Record<string, unknown>>({ data, columns, csvName, filterPlaceholder = "Filter", empty = "Nothing to show.", rowHref }: {
   data: T[]; columns: ColumnDef<T, unknown>[]; csvName?: string; filterPlaceholder?: string; empty?: string;
+  rowHref?: (row: T) => string | undefined;
 }) {
+  const router = useRouter();
+  const openRow = (href: string | undefined) => (e: React.MouseEvent<HTMLTableRowElement>) => {
+    if (!href || (e.target as HTMLElement).closest("a, button, input, select, textarea, label")) return;
+    if (window.getSelection()?.toString()) return;        // selecting text in a row is not a click on it
+    if (e.ctrlKey || e.metaKey) window.open(href, "_blank", "noopener");
+    else router.push(href);
+  };
   const [sorting, setSorting] = useState<SortingState>([]);
   const [filter, setFilter] = useState("");
   const table = useReactTable({
@@ -54,11 +68,14 @@ export function DataTable<T extends Record<string, unknown>>({ data, columns, cs
           <tbody>
             {rows.length === 0 ? (
               <tr><td colSpan={columns.length} className="px-3 py-8 text-center text-ink-soft">{empty}</td></tr>
-            ) : rows.map((r) => (
-              <tr key={r.id} className="hover:bg-paper">
+            ) : rows.map((r) => {
+              const href = rowHref?.(r.original);
+              return (
+              <tr key={r.id} className={cn("hover:bg-paper", href && "cursor-pointer")} onClick={href ? openRow(href) : undefined} data-row-href={href}>
                 {r.getVisibleCells().map((c) => <td key={c.id} className="border-b border-line-soft px-3 py-2.5 align-top">{flexRender(c.column.columnDef.cell, c.getContext())}</td>)}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

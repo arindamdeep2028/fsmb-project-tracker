@@ -12,6 +12,9 @@ import { cn, pct } from "@/lib/utils";
  * My Performance click-through. Every figure on the page opens the records it counts, for the window the page
  * shows. Records arrive from the server already limited to the signed-in user (and to what RLS lets them read);
  * this component only presents them — the figures themselves still come from my_performance.
+ *
+ * Also used by an Admin for one person (/performance/<id>): `person` is then that person's name, and the dialog
+ * text speaks about them instead of "you". Without `person` every text is the My Performance text.
  */
 type Ctx = { open: (m: PerformanceMetric) => void };
 const MetricContext = React.createContext<Ctx | null>(null);
@@ -59,9 +62,11 @@ export function MetricLabel({ metric, children }: { metric: PerformanceMetric; c
   return <span role="presentation" onClick={() => open(metric)} className="cursor-pointer hover:text-steel">{children}</span>;
 }
 
-export function MyPerformanceDetails({ children, records, summary, weights, window: w, loadError }: {
+export function MyPerformanceDetails({ children, records, summary, weights, window: w, loadError, person }: {
   children: React.ReactNode; records: PerformanceRecords; summary: PerformanceSummary;
   weights: { onTime: number; clean: number }; window: { from: string; to: string }; loadError: boolean;
+  /** whose records these are, when not the viewer's own (Admin view); omitted on My Performance */
+  person?: string;
 }) {
   const [metric, setMetric] = React.useState<PerformanceMetric | null>(null);
   const ctx = React.useMemo<Ctx>(() => ({ open: setMetric }), []);
@@ -71,15 +76,15 @@ export function MyPerformanceDetails({ children, records, summary, weights, wind
       {children}
       <Dialog open={metric !== null} onOpenChange={(o) => { if (!o) setMetric(null); }}>
         {metric ? (
-          <DialogContent title={TITLES[metric]} description={`${describe(metric, summary)} · ${range}`} className="max-w-4xl">
+          <DialogContent title={TITLES[metric]} description={`${describe(metric, summary, person)} · ${range}`} className="max-w-4xl">
             {loadError ? (
               <p role="alert" className="mb-3 rounded-md border border-signal-red/40 bg-signal-red/5 px-3 py-2 text-sm text-signal-red">
                 Some records could not be loaded. Reload the page to try again.
               </p>
             ) : null}
             {metric === "score"
-              ? <ScoreDetails summary={summary} records={records} weights={weights} />
-              : <MetricRecords metric={metric} records={records} summary={summary} />}
+              ? <ScoreDetails summary={summary} records={records} weights={weights} person={person} />
+              : <MetricRecords metric={metric} records={records} summary={summary} person={person} />}
           </DialogContent>
         ) : null}
       </Dialog>
@@ -87,48 +92,54 @@ export function MyPerformanceDetails({ children, records, summary, weights, wind
   );
 }
 
-function describe(m: PerformanceMetric, s: PerformanceSummary): string {
+function describe(m: PerformanceMetric, s: PerformanceSummary, person?: string): string {
   const n = (x: number, one: string, many = `${one}s`) => `${x} ${x === 1 ? one : many}`;
   switch (m) {
     case "score": return s.score == null ? "No score yet" : `Score ${s.score} · ${scoreBand(s.score).label}`;
     case "completed": return `${n(s.completed, "task")} completed in this period`;
     case "ontime": return `${Math.max(0, s.completed - s.late)} of ${n(s.completed, "completed task")} finished by the deadline (${pct(s.on_time_pct)})`;
     case "red": return `${n(s.red_events, "red mark")} recorded in this period`;
-    case "assigned": return `${n(s.assigned, "task")} assigned to you in this period`;
+    case "assigned": return `${n(s.assigned, "task")} assigned to ${person ?? "you"} in this period`;
     case "late": return `${n(s.late, "task")} completed after the deadline`;
     case "daily": return `${n(s.daily_updates, "daily update")} recorded in this period`;
   }
 }
 
-const EMPTY: Record<Exclude<PerformanceMetric, "score">, [string, string]> = {
-  completed: ["No completed tasks", "You didn't complete any tasks in the selected dates."],
-  ontime: ["No tasks completed on time", "None of your tasks were completed by their deadline in the selected dates."],
-  red: ["No red marks", "No red marks were recorded against you in the selected dates."],
-  assigned: ["No tasks assigned", "No tasks were assigned to you in the selected dates."],
-  late: ["No late completions", "None of your tasks were completed after their deadline in the selected dates."],
-  daily: ["No daily updates", "No daily updates were recorded for you in the selected dates."],
-};
+/** Empty-state title and text; `person` (Admin view) replaces "you"/"your" with the person's name. */
+function emptyText(m: Exclude<PerformanceMetric, "score">, person?: string): [string, string] {
+  const you = person ?? "you", You = person ?? "You", your = person ? `${person}'s` : "your";
+  const texts: Record<Exclude<PerformanceMetric, "score">, [string, string]> = {
+    completed: ["No completed tasks", `${You} didn't complete any tasks in the selected dates.`],
+    ontime: ["No tasks completed on time", `None of ${your} tasks were completed by their deadline in the selected dates.`],
+    red: ["No red marks", `No red marks were recorded against ${you} in the selected dates.`],
+    assigned: ["No tasks assigned", `No tasks were assigned to ${you} in the selected dates.`],
+    late: ["No late completions", `None of ${your} tasks were completed after their deadline in the selected dates.`],
+    daily: ["No daily updates", `No daily updates were recorded for ${you} in the selected dates.`],
+  };
+  return texts[m];
+}
 
-function MetricRecords({ metric, records, summary }: { metric: Exclude<PerformanceMetric, "score">; records: PerformanceRecords; summary: PerformanceSummary }) {
+function MetricRecords({ metric, records, summary, person }: { metric: Exclude<PerformanceMetric, "score">; records: PerformanceRecords; summary: PerformanceSummary; person?: string }) {
   const rows = records[metric];
   const hidden = Math.max(0, expectedCount(metric, summary) - rows.length);
+  const [title, text] = emptyText(metric, person);
   return (
     <>
-      {rows.length === 0 ? <EmptyState title={EMPTY[metric][0]}>{hidden ? null : EMPTY[metric][1]}</EmptyState>
+      {rows.length === 0 ? <EmptyState title={title}>{hidden ? null : text}</EmptyState>
         : metric === "red" || metric === "daily" ? <LogRecords kind={metric} rows={rows as PerformanceLog[]} />
         : <TaskRecords kind={metric} rows={rows as PerformanceTask[]} />}
-      <HiddenNote count={hidden} />
+      <HiddenNote count={hidden} person={person} />
     </>
   );
 }
 
 /** Counted by the score but not readable by the viewer (a project they are no longer a member of). */
-function HiddenNote({ count }: { count: number }) {
+function HiddenNote({ count, person }: { count: number; person?: string }) {
   if (!count) return null;
   return (
     <p className="mt-3 text-sm text-ink-soft">
       {count === 1 ? "1 more record is" : `${count} more records are`} counted in this figure but can&apos;t be shown, because
-      {count === 1 ? " it belongs" : " they belong"} to a project you no longer have access to.
+      {count === 1 ? " it belongs" : " they belong"} to {person ? "a project you can't see" : "a project you no longer have access to"}.
     </p>
   );
 }
@@ -222,16 +233,17 @@ function LogRecords({ kind, rows }: { kind: "red" | "daily"; rows: PerformanceLo
 }
 
 /** How the score was reached: its two parts with the actual figures, then the records behind each part. */
-function ScoreDetails({ summary: s, records, weights }: { summary: PerformanceSummary; records: PerformanceRecords; weights: { onTime: number; clean: number } }) {
+function ScoreDetails({ summary: s, records, weights, person }: { summary: PerformanceSummary; records: PerformanceRecords; weights: { onTime: number; clean: number }; person?: string }) {
   const b = scoreBreakdown(s, weights);
   if (s.score == null || !b) {
-    return <EmptyState title="No score for these dates">The score is calculated once you complete at least one task in the selected dates.</EmptyState>;
+    return <EmptyState title="No score for these dates">The score is calculated once {person ? `${person} completes` : "you complete"} at least one task in the selected dates.</EmptyState>;
   }
   const one = (x: number) => x.toFixed(1);
+  const completed = emptyText("completed", person), red = emptyText("red", person);
   return (
     <div className="space-y-5">
       <Table>
-        <thead><tr><th>Part</th><th>Your figures</th><th className="text-right">Rate</th><th className="text-right">Weight</th><th className="text-right">Points</th></tr></thead>
+        <thead><tr><th>Part</th><th>{person ? "Figures" : "Your figures"}</th><th className="text-right">Rate</th><th className="text-right">Weight</th><th className="text-right">Points</th></tr></thead>
         <tbody>
           <tr>
             <td className="font-medium">On time</td>
@@ -255,12 +267,12 @@ function ScoreDetails({ summary: s, records, weights }: { summary: PerformanceSu
       </Table>
       <div>
         <h3 className="mb-2 text-[15px] font-semibold">Completed tasks ({records.completed.length})</h3>
-        {records.completed.length ? <TaskRecords kind="completed" rows={records.completed} /> : <EmptyState title={EMPTY.completed[0]} />}
-        <HiddenNote count={Math.max(0, s.completed - records.completed.length)} />
+        {records.completed.length ? <TaskRecords kind="completed" rows={records.completed} /> : <EmptyState title={completed[0]} />}
+        <HiddenNote count={Math.max(0, s.completed - records.completed.length)} person={person} />
       </div>
       <div>
         <h3 className="mb-2 text-[15px] font-semibold">Red marks ({records.red.length})</h3>
-        {records.red.length ? <LogRecords kind="red" rows={records.red} /> : <EmptyState title={EMPTY.red[0]}>{EMPTY.red[1]}</EmptyState>}
+        {records.red.length ? <LogRecords kind="red" rows={records.red} /> : <EmptyState title={red[0]}>{red[1]}</EmptyState>}
       </div>
     </div>
   );

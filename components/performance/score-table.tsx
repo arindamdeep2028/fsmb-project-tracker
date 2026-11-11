@@ -11,8 +11,11 @@ type Row = { user_id: string; full_name: string; department?: string | null; mem
  * Scores come from the database (performance_summary / project_performance); the table only presents them.
  * `drill` (dashboards): every count opens that person's records for the window — tasks (assigned, completed,
  * late, on time, red-marked) on My Tasks, daily reports on Daily Reports — limited to what the viewer may see.
+ * `profile` (Performance page, Admin): the whole row — and the person's name — opens that person's performance
+ * page, `${base}${user_id}${query}`; it takes the place of `logBase`.
  */
-export function ScoreTable({ rows, csvName, logBase, drill }: { rows: Row[]; csvName?: string; logBase?: string; drill?: { from: string; to: string } }) {
+export function ScoreTable({ rows, csvName, logBase, drill, profile }: { rows: Row[]; csvName?: string; logBase?: string; drill?: { from: string; to: string }; profile?: { base: string; query?: string } }) {
+  const profileHref = profile ? (r: Row) => `${profile.base}${r.user_id}${profile.query ?? ""}` : undefined;
   const tasks = (r: Row, filter: string) => `/my-tasks?filter=${filter}&user=${r.user_id}&from=${drill?.from}&to=${drill?.to}`;
   const count = (key: "assigned" | "completed" | "late" | "red_events", filter: string, label: string): ColumnDef<Row, unknown> => ({
     accessorKey: key, header: label,
@@ -20,7 +23,9 @@ export function ScoreTable({ rows, csvName, logBase, drill }: { rows: Row[]; csv
   });
   const personHref = logBase ? `${logBase}` : drill ? "/my-tasks?user=" : null;
   const columns: ColumnDef<Row, unknown>[] = [
-    { accessorKey: "full_name", header: "Person", cell: ({ row }) => personHref ? <Link href={`${personHref}${row.original.user_id}`} className="font-medium hover:text-steel hover:underline">{row.original.full_name}</Link> : row.original.full_name },
+    { accessorKey: "full_name", header: "Person", cell: ({ row }) => profileHref
+      ? <Link href={profileHref(row.original)} className="font-medium hover:text-steel hover:underline">{row.original.full_name}</Link>
+      : personHref ? <Link href={`${personHref}${row.original.user_id}`} className="font-medium hover:text-steel hover:underline">{row.original.full_name}</Link> : row.original.full_name },
     ...(rows.some((r) => r.department !== undefined) ? [{ accessorKey: "department", header: "Department" } as ColumnDef<Row, unknown>] : []),
     count("assigned", "assigned", "Assigned"),
     count("completed", "done", "Completed"),
@@ -34,5 +39,5 @@ export function ScoreTable({ rows, csvName, logBase, drill }: { rows: Row[]; csv
       : row.original.daily_updates) },
     { accessorKey: "score", header: "Score", cell: ({ getValue }) => { const v = getValue() as number | null; const b = scoreBand(v); return <span className="inline-flex items-center gap-2"><span className="font-semibold">{v ?? "—"}</span><Badge signal={b.signal}>{b.label}</Badge></span>; } },
   ];
-  return <DataTable data={rows} columns={columns} csvName={csvName} filterPlaceholder="Find a person" empty="No activity in this window." />;
+  return <DataTable data={rows} columns={columns} csvName={csvName} filterPlaceholder="Find a person" empty="No activity in this window." rowHref={profileHref} />;
 }

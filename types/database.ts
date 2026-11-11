@@ -579,6 +579,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           updated_at: string
+          category: Database["public"]["Enums"]["project_category"]
         }
         Insert: {
           id?: string
@@ -600,6 +601,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           updated_at?: string
+          category?: Database["public"]["Enums"]["project_category"]
         }
         Update: {
           id?: string
@@ -621,6 +623,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           updated_at?: string
+          category?: Database["public"]["Enums"]["project_category"]
         }
         Relationships: [
           {
@@ -649,6 +652,57 @@ export type Database = {
             columns: ["pm_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      project_status_history: {
+        Row: {
+          id: number
+          project_id: string
+          kind: string
+          from_status: Database["public"]["Enums"]["project_status"] | null
+          to_status: Database["public"]["Enums"]["project_status"]
+          changed_at: string
+          changed_by: string | null
+          changed_by_name: string | null
+          reason: string | null
+        }
+        Insert: {
+          id?: never
+          project_id: string
+          kind?: string
+          from_status?: Database["public"]["Enums"]["project_status"] | null
+          to_status: Database["public"]["Enums"]["project_status"]
+          changed_at?: string
+          changed_by?: string | null
+          changed_by_name?: string | null
+          reason?: string | null
+        }
+        Update: {
+          id?: never
+          project_id?: string
+          kind?: string
+          from_status?: Database["public"]["Enums"]["project_status"] | null
+          to_status?: Database["public"]["Enums"]["project_status"]
+          changed_at?: string
+          changed_by?: string | null
+          changed_by_name?: string | null
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_status_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_status_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           }
         ]
@@ -1365,6 +1419,7 @@ export type Database = {
       project_progress: { Args: { p_project: string }; Returns: Json }
       save_daily_report: { Args: { p: Json }; Returns: string }
       save_daily_row: { Args: { p: Json }; Returns: string }
+      set_project_status: { Args: { p_project: string; p_status: Database["public"]["Enums"]["project_status"]; p_reason?: string | null }; Returns: undefined }
       set_task_deadline: { Args: { p_task: string; p_due: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
     }
     Enums: {
@@ -1374,6 +1429,7 @@ export type Database = {
       notification_type: "task_assigned" | "deadline_approaching" | "task_overdue" | "pm_comment" | "status_changed"
       project_member_role: "pm" | "engineer"
       project_status: "Active" | "On hold" | "Completed" | "Cancelled"
+      project_category: "Software" | "Embedded" | "Optical" | "Mechanical"
       task_priority: "Important" | "High" | "Normal" | "Low"
       task_status: "Not started" | "Plan submitted" | "In progress" | "Blocked" | "Completed"
       task_type: "Task" | "Subtask"

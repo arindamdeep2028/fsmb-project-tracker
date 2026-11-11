@@ -79,11 +79,24 @@ export const projectInput = z.object({
   department_id: id,
   pm_id: id.nullable().optional(),
   status: z.enum(["Active", "On hold", "Completed", "Cancelled"]).default("Active"),
+  category: z.enum(["Software", "Embedded", "Optical", "Mechanical"]).optional(),
   start_date: z.string().optional().transform((v) => v || null),
   target_end: z.string().optional().transform((v) => v || null),
   notes: optText(5000),
 });
 export type ProjectInput = z.input<typeof projectInput>;
+/**
+ * Partial edit. Status has no default here: Zod 4 applies defaults inside .partial(), which would otherwise
+ * reset the status to Active on every save that didn't touch it.
+ */
+export const projectUpdateInput = projectInput.extend({ status: z.enum(["Active", "On hold", "Completed", "Cancelled"]) }).partial();
+
+/** Lifecycle change (migration 24): Running = Active, Halted = On hold, Completed. */
+export const projectStatusInput = z.object({
+  projectId: id,
+  status: z.enum(["Active", "On hold", "Completed"]),
+  reason: z.string().trim().max(1000, "Keep the reason under 1000 characters").optional(),
+});
 
 export const password = z.string().min(10, "Use at least 10 characters").max(72);
 

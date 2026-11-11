@@ -2,7 +2,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { type ActionResult, fail } from "@/lib/errors";
-import { firstIssue, projectInput, type ProjectInput } from "@/lib/validation";
+import { firstIssue, projectInput, projectStatusInput, projectUpdateInput, type ProjectInput } from "@/lib/validation";
+import { projectStatusLabel } from "@/lib/project-status";
 import type { Enums, TablesInsert, TablesUpdate } from "@/types/database";
 
 const refresh = () => revalidatePath("/", "layout");
@@ -11,15 +12,18 @@ export async function createProject(input: ProjectInput): Promise<ActionResult<{
   const p = projectInput.safeParse(input);
   if (!p.success) return { ok: false, message: firstIssue(p.error) };
   const supabase = await createClient();
-  const { data, error } = await supabase.from("projects").insert(p.data as TablesInsert<"projects">).select("id").single();
+  // The id is made here and the row is not read back: the read-back is checked against the projects read policy,
+  // which can't see the new row inside the same statement for a Department Head, and refused the whole insert.
+  const id = crypto.randomUUID();
+  const { error } = await supabase.from("projects").insert({ ...p.data, id } as TablesInsert<"projects">);
   if (error) return fail(error);
   refresh();
-  return { ok: true, message: `Project ${p.data.code} created`, data };
+  return { ok: true, message: `Project ${p.data.code} created`, data: { id } };
 }
 
 /** PMs may change details only; code, department, lead PM and archive need a Department Head or Admin (trigger). */
 export async function updateProject(projectId: string, input: Partial<ProjectInput>): Promise<ActionResult> {
-  const p = projectInput.partial().safeParse(input);
+  const p = projectUpdateInput.safeParse(input);
   if (!p.success) return { ok: false, message: firstIssue(p.error) };
   const patch = Object.fromEntries(Object.entries(p.data).filter(([, v]) => v !== undefined)) as TablesUpdate<"projects">;
   const supabase = await createClient();
@@ -27,6 +31,20 @@ export async function updateProject(projectId: string, input: Partial<ProjectInp
   if (error) return fail(error);
   refresh();
   return { ok: true, message: "Project saved" };
+}
+
+/**
+ * Lifecycle change with an optional reason (migration 24). The RPC runs as the user: the projects policy and
+ * triggers decide who may change it and which moves are allowed; a trigger records the history.
+ */
+export async function changeProjectStatus(projectId: string, status: Enums<"project_status">, reason?: string): Promise<ActionResult> {
+  const p = projectStatusInput.safeParse({ projectId, status, reason });
+  if (!p.success) return { ok: false, message: firstIssue(p.error) };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_project_status", { p_project: p.data.projectId, p_status: p.data.status, p_reason: p.data.reason || null });
+  if (error) return fail(error);
+  refresh();
+  return { ok: true, message: `Project set to ${projectStatusLabel(p.data.status)}` };
 }
 
 export async function setProjectArchived(projectId: string, archived: boolean): Promise<ActionResult> {

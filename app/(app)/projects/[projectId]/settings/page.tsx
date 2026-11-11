@@ -14,7 +14,7 @@ export default async function ProjectSettingsPage({ params }: { params: Promise<
   return (
     <div className="space-y-6">
       <Section title="Project details">
-        {!structure ? <p className="mb-4 text-sm text-ink-soft">Code, department and lead PM are changed by the Department Head or an Admin.</p> : null}
+        {!structure ? <p className="mb-4 text-sm text-ink-soft">Code, department, category and lead PM are changed by the Department Head or an Admin.</p> : null}
         <ProjectForm project={project} departments={deptOptions} pms={pms} canEditStructure={structure} />
       </Section>
       {structure ? (

@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { createProject, updateProject } from "@/lib/actions/projects";
-import { PROJECT_STATUSES } from "@/lib/labels";
+import { PROJECT_CATEGORIES, nextStatuses, projectStatusLabel, type ProjectCategory } from "@/lib/project-status";
 import { Button } from "@/components/ui/button";
 import { Field, FormMessage, Input, Select, Textarea } from "@/components/ui/form";
 import { useToast } from "@/components/toast";
@@ -17,16 +17,22 @@ const schema = z.object({
   department_id: z.string().min(1, "Choose a department"),
   pm_id: z.string(),
   status: z.enum(["Active", "On hold", "Completed", "Cancelled"]),
+  category: z.enum(["Software", "Embedded", "Optical", "Mechanical"]),
   start_date: z.string(),
   target_end: z.string(),
   notes: z.string().max(5000),
 });
 type V = z.infer<typeof schema>;
-type Project = Partial<{ id: string; code: string; name: string; description: string | null; department_id: string; pm_id: string | null; status: V["status"]; start_date: string | null; target_end: string | null; notes: string | null }>;
+type Project = Partial<{ id: string; code: string; name: string; description: string | null; department_id: string; pm_id: string | null; status: V["status"]; category: ProjectCategory; start_date: string | null; target_end: string | null; notes: string | null }>;
 
-/** New project (Department Head, Admin) and project details. Structural fields are editable by Department Head / Admin only. */
-export function ProjectForm({ project, departments, pms, canEditStructure }: {
+/**
+ * New project (Department Head, Admin) and project details. Structural fields (code, department, lead PM, category)
+ * are editable by Department Head / Admin only. A new project goes into `category` (the Projects tab it was
+ * created from) and starts as Running; on an existing project the status list offers only the allowed moves.
+ */
+export function ProjectForm({ project, departments, pms, canEditStructure, category }: {
   project?: Project; departments: { id: string; name: string }[]; pms: { id: string; full_name: string }[]; canEditStructure: boolean;
+  category?: ProjectCategory;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -36,7 +42,7 @@ export function ProjectForm({ project, departments, pms, canEditStructure }: {
     defaultValues: {
       code: project?.code ?? "", name: project?.name ?? "", description: project?.description ?? "",
       department_id: project?.department_id ?? departments[0]?.id ?? "", pm_id: project?.pm_id ?? "",
-      status: project?.status ?? "Active", start_date: project?.start_date ?? "", target_end: project?.target_end ?? "", notes: project?.notes ?? "",
+      status: project?.status ?? "Active", category: project?.category ?? category ?? "Software", start_date: project?.start_date ?? "", target_end: project?.target_end ?? "", notes: project?.notes ?? "",
     },
   });
   const e = f.formState.errors;
@@ -68,7 +74,22 @@ export function ProjectForm({ project, departments, pms, canEditStructure }: {
         <Field label="Lead PM" htmlFor="p-pm" hint="Added to the project as PM automatically.">
           <Select id="p-pm" {...f.register("pm_id")} disabled={!canEditStructure}><option value="">None yet</option>{pms.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select>
         </Field>
-        <Field label="Status" htmlFor="p-status"><Select id="p-status" {...f.register("status")}>{PROJECT_STATUSES.map((s) => <option key={s}>{s}</option>)}</Select></Field>
+        {project?.id ? (
+          <Field label="Category" htmlFor="p-category">
+            <Select id="p-category" {...f.register("category")} disabled={!canEditStructure}>{PROJECT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</Select>
+          </Field>
+        ) : (
+          <Field label="Category" htmlFor="p-category" hint="Set by the Projects tab you started from.">
+            <Input id="p-category" value={f.getValues("category")} readOnly disabled />
+          </Field>
+        )}
+        {project?.id && project.status ? (
+          <Field label="Status" htmlFor="p-status" hint="Changes are kept in the project's status history.">
+            <Select id="p-status" {...f.register("status")}>
+              {[project.status, ...nextStatuses(project.status)].map((s) => <option key={s} value={s}>{projectStatusLabel(s)}</option>)}
+            </Select>
+          </Field>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Start" htmlFor="p-start"><Input id="p-start" type="date" {...f.register("start_date")} /></Field>
           <Field label="Target end" htmlFor="p-end"><Input id="p-end" type="date" {...f.register("target_end")} /></Field>

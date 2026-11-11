@@ -18,6 +18,13 @@
   --color-signal-amber: #b7791f;
   --color-signal-green: #2e7d55;
   --color-signal-neutral: #a3adb8;
+  /* Project lifecycle (Projects page): Running green, Halted orange, Completed neutral grey. */
+  --color-life-running: #23744b;
+  --color-life-running-wash: #e3f3ea;
+  --color-life-halted: #b45309;
+  --color-life-halted-wash: #fdf0e1;
+  --color-life-closed: #5b6878;
+  --color-life-closed-wash: #edf0f3;
 }
 
 html { -webkit-text-size-adjust: 100%; }

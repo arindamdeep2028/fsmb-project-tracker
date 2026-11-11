@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Member } from "@/types/domain";
+import type { Enums } from "@/types/database";
 
 export const listProjects = cache(async () => {
   const supabase = await createClient();
@@ -19,6 +20,24 @@ export const listProjects = cache(async () => {
   }));
   return (projects.data ?? []).map((p) => ({ ...p, metrics: completion.get(p.id) ?? null }));
 });
+
+export type StatusHistoryRow = {
+  id: number; project_id: string; kind: string; from_status: Enums<"project_status"> | null; to_status: Enums<"project_status">;
+  changed_at: string; changed_by_name: string | null; reason: string | null;
+};
+
+/** Status history of the given projects, newest first (RLS: projects the viewer can see). */
+export async function getStatusHistory(projectIds: string[]): Promise<Record<string, StatusHistoryRow[]>> {
+  if (!projectIds.length) return {};
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("project_status_history")
+    .select("id, project_id, kind, from_status, to_status, changed_at, changed_by_name, reason")
+    .in("project_id", projectIds).order("changed_at", { ascending: false }).order("id", { ascending: false });
+  if (error) throw error;
+  const out: Record<string, StatusHistoryRow[]> = {};
+  for (const r of data ?? []) (out[r.project_id] ??= []).push(r);
+  return out;
+}
 
 export const getProject = cache(async (id: string) => {
   const supabase = await createClient();

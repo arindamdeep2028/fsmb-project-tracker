@@ -1,19 +1,22 @@
 @import "tailwindcss";
 
-/* FSMB tokens: clean-room white, graphite ink, steel blue actions, three signal colours for deadline state only. */
+/* FSMB tokens: Forest Green corporate theme. Token names are kept from the original theme:
+   "graphite" = sidebar/brand surface, "steel" = primary action colour. Signal and lifecycle colours are unchanged. */
 @theme {
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --color-paper: #f6f8fa;
-  --color-panel: #ffffff;
-  --color-ink: #1d2733;
-  --color-ink-soft: #4a5868;
-  --color-ink-faint: #7a8796;
-  --color-line: #d8dee6;
-  --color-line-soft: #e8ecf1;
-  --color-steel: #355c7d;
-  --color-steel-dark: #274761;
-  --color-steel-wash: #eaf0f5;
-  --color-graphite: #1d2733;
+  --color-paper: #f4f7f4;            /* main workspace background */
+  --color-panel: #ffffff;            /* card background */
+  --color-ink: #26332b;              /* primary text */
+  --color-ink-soft: #647568;         /* secondary text */
+  --color-ink-faint: #7d8c80;        /* tertiary text (green-grey, same contrast as before) */
+  --color-line: #dde5de;             /* borders and dividers */
+  --color-line-soft: #ebf0ec;        /* hairlines inside cards */
+  --color-steel: #34483c;            /* primary forest green: buttons, links, focus */
+  --color-steel-dark: #506557;       /* secondary forest green: primary hover, plan header cells */
+  --color-steel-wash: #e9efe9;       /* light sage tint: hover rows, neutral badges */
+  --color-graphite: #34483c;         /* sidebar and brand panel */
+  --color-nav-active: #455b4b;       /* active navigation background */
+  --color-sage: #91a98d;             /* sage accent */
   --color-signal-red: #c4302b;
   --color-signal-amber: #b7791f;
   --color-signal-green: #2e7d55;

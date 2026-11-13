@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   title: { default: "FSMB Project Tracker", template: "%s · FSMB Project Tracker" },
   description: "Projects, responsibilities and daily reports for Frontier Semiconductor Bangladesh.",
 };
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#1d2733" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#34483c" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

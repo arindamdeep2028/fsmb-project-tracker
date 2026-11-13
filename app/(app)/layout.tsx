@@ -18,10 +18,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <aside className="sticky top-0 hidden h-dvh flex-col bg-graphite px-3 py-5 md:flex">
         <Link href="/" className="mb-6 px-3 text-white">
           <span className="block text-lg font-semibold leading-tight">FSMB</span>
-          <span className="block text-sm text-white/60">Project Tracker</span>
+          <span className="block text-sm text-white/85">Project Tracker</span>
         </Link>
         {canReport ? (
-          <Link href="/daily-reports/new" className="mb-5 rounded-md bg-steel px-3 py-2 text-center text-[15px] font-medium text-white hover:bg-steel-dark">Submit today's report</Link>
+          <Link href="/daily-reports/new" className="mb-5 rounded-md bg-sage px-3 py-2 text-center text-[15px] font-medium text-ink hover:bg-steel-wash">Submit today's report</Link>
         ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto"><NavLinks items={items} /></div>
       </aside>

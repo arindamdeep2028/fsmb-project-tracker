@@ -18,14 +18,14 @@ export function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?:
   const link = (i: NavItem) => (
     <Link key={i.href} href={i.href} onClick={onNavigate} aria-current={isActive(path, i.href) ? "page" : undefined}
       className={cn("block rounded-md px-3 py-2 text-[15px] text-white/75 hover:bg-white/8 hover:text-white",
-        isActive(path, i.href) && "bg-white/12 font-medium text-white")}>
+        isActive(path, i.href) && "bg-nav-active font-medium text-white")}>
       {i.label}
     </Link>
   );
   return (
     <nav aria-label="Main" className="space-y-0.5">
       {main.map(link)}
-      {admin.length ? <div className="px-3 pb-1 pt-5 text-xs text-white/45">Administration</div> : null}
+      {admin.length ? <div className="px-3 pb-1 pt-5 text-xs text-sage">Administration</div> : null}
       {admin.map(link)}
     </nav>
   );

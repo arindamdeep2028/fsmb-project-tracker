@@ -4,7 +4,8 @@ import { deleteAttachment } from "@/lib/actions/reports";
 import { isImage } from "@/lib/storage";
 import { useAction } from "@/components/toast";
 
-type A = { id: string; file_name: string; mime_type: string; size_bytes: number; url: string | null };
+/** `task`: the task row the file is attached to (null = the whole report). */
+type A = { id: string; file_name: string; mime_type: string; size_bytes: number; url: string | null; task?: string | null };
 
 export function AttachmentGallery({ files, canDelete }: { files: A[]; canDelete: boolean }) {
   const { pending, run } = useAction();
@@ -22,6 +23,7 @@ export function AttachmentGallery({ files, canDelete }: { files: A[]; canDelete:
               <div className="grid aspect-[4/3] place-items-center text-ink-faint"><FileText size={32} /></div>
             )}
             <div className="truncate px-2 py-1.5 text-xs">{f.file_name} · {(f.size_bytes / 1024 / 1024).toFixed(1)} MB</div>
+            {f.task ? <div data-testid="gallery-task" className="truncate px-2 pb-1.5 text-[11px] text-steel" title={f.task}>Task: {f.task}</div> : null}
           </a>
           {canDelete ? (
             <button aria-label={`Remove ${f.file_name}`} disabled={pending} onClick={() => confirm(`Remove ${f.file_name}?`) && run(() => deleteAttachment(f.id))}

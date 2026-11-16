@@ -97,6 +97,7 @@ export type Database = {
           size_bytes: number
           uploaded_by: string
           uploaded_at: string
+          task_id: string | null
         }
         Insert: {
           id?: string
@@ -107,6 +108,7 @@ export type Database = {
           size_bytes: number
           uploaded_by?: string
           uploaded_at?: string
+          task_id?: string | null
         }
         Update: {
           id?: string
@@ -117,6 +119,7 @@ export type Database = {
           size_bytes?: number
           uploaded_by?: string
           uploaded_at?: string
+          task_id?: string | null
         }
         Relationships: [
           {
@@ -125,6 +128,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "daily_reports"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_attachments_task_row_fkey"
+            columns: ["report_id", "task_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_items"
+            referencedColumns: ["report_id", "task_id"]
           },
           {
             foreignKeyName: "daily_report_attachments_uploaded_by_fkey"

@@ -54,6 +54,9 @@ export function dateRange(from: string, to: string): string[] {
   return out;
 }
 
+/** A file attached to one task row of a daily update; `url` is a short-lived signed link (null if it can't be read). */
+export type TaskFile = { id: string; name: string; mime: string; url: string | null };
+
 /** One line of the Daily Follow Up: a person's update for a project on one date (empty when nobody reported). */
 export type DailyRow = {
   key: string;
@@ -65,13 +68,30 @@ export type DailyRow = {
   userId: string | null;
   locked: boolean;
   edit: { taskId: string | null; status: string | null; progress: number | null; nextTask: string } | null;
-  mainTask: { label: string; sub: string | null; status: string | null }[];
+  /** each task row of the update; `files`: its screenshots/photos (task-row attachments, signed links) */
+  mainTask: { label: string; sub: string | null; status: string | null; taskId?: string; files?: TaskFile[] }[];
+  /** all files attached to the report (whole report + task rows), for the files-per-report limit */
+  fileCount?: number;
   dailySubTask: string;
   assignedTo: string;
   issues: string;
   nextTask: string;
   remarks: string;
 };
+
+/**
+ * The sheet's project-day rows: consecutive lines of the same date (each person's own report) shown as one row.
+ * Display only — every report stays its own record, edited on its own.
+ */
+export function dayGroups(rows: DailyRow[]): DailyRow[][] {
+  const out: DailyRow[][] = [];
+  for (const r of rows) {
+    const last = out.at(-1);
+    if (last && last[0].date === r.date) last.push(r);
+    else out.push([r]);
+  }
+  return out;
+}
 
 /** Newest date first (Admin, Department Head, Project Manager) or oldest first from Day 1 (Engineer). */
 export type ReportOrder = "asc" | "desc";

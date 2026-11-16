@@ -9,6 +9,8 @@ import { DeadlineChip, RedReasons } from "@/components/tasks/deadline";
 import { CommentThread } from "@/components/tasks/comment-thread";
 import { TaskDetailActions } from "@/components/tasks/task-detail-actions";
 import { fmt, fmtDay } from "@/lib/time";
+import { taskRowFiles } from "@/lib/data/reports";
+import { TaskFiles } from "@/components/reports/daily-log-table";
 import { pct } from "@/lib/utils";
 
 export default async function TaskPage({ params }: { params: Promise<{ projectId: string; taskId: string }> }) {
@@ -31,6 +33,7 @@ export default async function TaskPage({ params }: { params: Promise<{ projectId
     }
   }
   const assignees = manages ? (await getMembers(projectId)).map((m) => ({ user_id: m.user_id, full_name: m.full_name })) : await getProjectEngineers(projectId);
+  const files = await taskRowFiles(t.id);          // this task's screenshots/photos from its daily updates
   const progress = isLeaf ? t.progress_pct : d.rollup?.calculated_progress;
   const red = Boolean(d.flags?.is_red) && t.status !== "Completed";
   return (
@@ -100,8 +103,9 @@ export default async function TaskPage({ params }: { params: Promise<{ projectId
           {d.items.length ? (
             <ul className="space-y-2 text-sm">
               {d.items.map((i) => (
-                <li key={i.id}><Link href={`/daily-reports/${i.report?.id}`} className="font-medium hover:text-steel hover:underline">{fmtDay(i.report?.report_date)}</Link>
-                  {i.progress_after != null ? ` · ${i.progress_after}%` : ""}{i.status_after ? ` · ${i.status_after}` : ""}{i.note ? <span className="block text-ink-soft">{i.note}</span> : null}</li>
+                <li key={i.id} data-testid="task-mention"><Link href={`/daily-reports/${i.report?.id}`} className="font-medium hover:text-steel hover:underline">{fmtDay(i.report?.report_date)}</Link>
+                  {i.progress_after != null ? ` · ${i.progress_after}%` : ""}{i.status_after ? ` · ${i.status_after}` : ""}{i.note ? <span className="block text-ink-soft">{i.note}</span> : null}
+                  {i.report?.id && files[i.report.id]?.length ? <TaskFiles files={files[i.report.id]} task={`${t.code} ${t.title}`} /> : null}</li>
               ))}
             </ul>
           ) : <p className="text-sm text-ink-soft">Not in any daily report yet.</p>}

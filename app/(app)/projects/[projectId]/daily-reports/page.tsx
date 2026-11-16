@@ -69,7 +69,7 @@ export default async function ProjectReportsPage({ params, searchParams }: {
 
   return (
     <DailyLogEditor key={fill ? `${fill.userId}-${fill.date}` : "log"} order={order} fill={fill}
-      projectId={projectId} rows={rows} today={today} start={start} meId={s.userId} isAdmin={s.isAdmin}
+      projectId={projectId} rows={rows} today={today} start={start} meId={s.userId} isAdmin={s.isAdmin} maxFiles={settings?.attachment_max_files ?? 10}
       canAdd={(isMember || s.isAdmin) && !project.archived && people.length > 0} people={people} tasks={rowTasks} from={from} query={query}
       filters={
         <form method="get" className="flex flex-wrap items-end gap-3">

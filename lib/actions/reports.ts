@@ -96,10 +96,14 @@ export async function saveDailyRow(input: DailyRowInput): Promise<ActionResult<{
  * that the path is this report's folder, and that the stored bytes really are the declared kind of file
  * (lib/uploads.ts). A file that fails is removed from Storage again. The database then takes size and type from
  * the stored object, and RLS plus the attachment trigger decide whose report may get files.
+ * `task_id` links the file to one task row of the report; the database accepts only a task the report lists
+ * (foreign key to daily_report_items, migration 25), and the report's own rules decide who may list which task.
  */
-export async function recordAttachment(input: { report_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number }): Promise<ActionResult> {
+export async function recordAttachment(input: { report_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; task_id?: string | null }): Promise<ActionResult> {
   const claim = checkUploadClaim(input);
   if (!claim.ok) return claim;
+  const taskId = input.task_id ?? null;
+  if (taskId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId)) return { ok: false, message: "That task can't be used" };
   const s = await getSession();
   if (!s || !s.profile.active) return { ok: false, message: "Sign in again to save." };
   const supabase = await createClient();
@@ -110,9 +114,13 @@ export async function recordAttachment(input: { report_id: string; storage_path:
   }
   const { error } = await supabase.from("daily_report_attachments").insert({
     report_id: input.report_id, storage_path: input.storage_path, file_name: input.file_name,
-    mime_type: input.mime_type, size_bytes: input.size_bytes, uploaded_by: s.userId,
+    mime_type: input.mime_type, size_bytes: input.size_bytes, uploaded_by: s.userId, task_id: taskId,
   });
-  if (error) return fail(error);
+  if (error) {
+    // the caller removes the stored object again on any failure
+    if (error.code === "23503" && taskId) return { ok: false, message: "That task is not part of this daily update, so the file can't be attached to it. Choose the task in the update first." };
+    return fail(error);
+  }
   refresh();
   return { ok: true };
 }
@@ -122,7 +130,8 @@ async function readHead(supabase: Awaited<ReturnType<typeof createClient>>, path
   const { data } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
   if (!data?.signedUrl) return null;
   try {
-    const res = await fetch(data.signedUrl, { headers: { Range: "bytes=0-4095" }, cache: "no-store" });
+    // bounded: a slow Storage answer ends in "couldn't be read back, try again" instead of an action that never returns
+    const res = await fetch(data.signedUrl, { headers: { Range: "bytes=0-4095" }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (!res.ok || !res.body) return null;
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = []; let size = 0;

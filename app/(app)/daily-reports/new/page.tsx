@@ -51,14 +51,13 @@ export default async function NewReportPage({ searchParams }: { searchParams: Pr
           <Section title={`${project.code} ${project.name}`}>
             {/* keyed by project: switching project starts a fresh form, so one project's draft is never sent to another */}
             <DailyReportForm key={project.id} projectId={project.id} date={today} dayNo={projectDayNumber(projectStart(project), today)} me={s.profile.full_name}
-              tasks={tasks} existing={d.existing} />
+              tasks={tasks} existing={d.existing} maxFiles={settings?.attachment_max_files ?? 10} />
           </Section>
         )}
-        {!locked ? (
+        {/* a new update takes its photos and files inside the form above; a saved one has its uploader here */}
+        {!locked && d.existing ? (
           <Section title="Photos and files">
-            {d.existing ? (
-              <FileUploader projectId={project.id} reportId={d.existing.id} existingCount={d.existing.daily_report_attachments.length} maxFiles={settings?.attachment_max_files ?? 10} />
-            ) : <p className="text-sm text-ink-soft">Submit the update first, then add photos and files on the next screen.</p>}
+            <FileUploader projectId={project.id} reportId={d.existing.id} existingCount={d.existing.daily_report_attachments.length} maxFiles={settings?.attachment_max_files ?? 10} />
           </Section>
         ) : null}
         <Section title="My daily follow up, last 14 days" aside={<Link href={`/projects/${project.id}/daily-reports`} className="text-sm text-steel hover:underline">Whole project</Link>}>

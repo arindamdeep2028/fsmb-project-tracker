@@ -9,6 +9,8 @@ import { reportItemChange } from "@/lib/report-items";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast";
 import { DailyLogTable } from "./daily-log-table";
+import { PendingFiles, reach, releasePending, withAdded, type PendingFile } from "./pending-files";
+import { carryToReport, imagesFromPaste } from "./file-uploader";
 
 /** An open task or subtask someone can name as the Main Task of their row. */
 export type RowTask = { id: string; assigned_to: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null; done: boolean };
@@ -22,9 +24,11 @@ type Draft = { key: string | null; date: string; userId: string; taskId: string;
  * member and an earlier date, which is how an overdue report is filled in (`fill` opens that row ready to write).
  * The server action and the database enforce the same limits (report RLS and triggers); this only decides what to offer.
  */
-export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, canAdd, people, tasks, from, query, order, fill, filters, actions }: {
+export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, canAdd, people, tasks, from, query, order, fill, filters, actions, maxFiles = 10 }: {
   projectId: string; rows: DailyRow[]; today: string; start: string; meId: string; isAdmin: boolean; canAdd: boolean;
   people: Person[]; tasks: RowTask[]; from: string; query: string;
+  /** files per report (workspace setting): a NEW update can take photos and files before it is saved */
+  maxFiles?: number;
   /** newest date first (the new row is offered above the list) or oldest first (below it) */
   order: ReportOrder;
   /** Admin: an overdue report to fill in, opened as a new row for that person and date */
@@ -39,12 +43,29 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
   const [draft, setDraft] = useState<Draft | null>(() => (fill && isAdmin && !saved(fill.date, fill.userId) ? empty(fill.date, fill.userId) : null));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // photos and files for the row being written; uploaded only once its report is saved (see save())
+  const [pending, setPending] = useState<PendingFile[]>([]);
+  // screenshots/photos for the row's task itself (linked to its Main Task when saved; migration 25)
+  const [taskPending, setTaskPending] = useState<PendingFile[]>([]);
+  const close = () => { releasePending([...pending, ...taskPending]); setPending([]); setTaskPending([]); setDraft(null); };
+  /** files the row's saved report already has (counted against the files-per-report limit) */
+  const savedFiles = (d: Draft) => (d.key ? rows.find((r) => r.key === d.key)?.fileCount : undefined) ?? saved(d.date, d.userId)?.fileCount ?? 0;
+  const taskName = (t: RowTask) => (t.sub ? `${t.label} — ${t.sub}` : t.label);
+  /** Ctrl+V anywhere in the row (while a Main Task is chosen) attaches the screenshot to that task row. */
+  function pasteIntoRow(e: React.ClipboardEvent, d: Draft, task: RowTask | undefined) {
+    if (!task || saving) return;
+    const images = imagesFromPaste(e.nativeEvent);
+    if (!images) return;
+    e.preventDefault();                               // the page-wide paste handlers leave it alone
+    // computed first, then set: a refusal message (toast) must not be raised from inside a React state update
+    setTaskPending(withAdded(taskPending, images, { room: Math.max(0, maxFiles - savedFiles(d) - pending.length - taskPending.length), maxFiles, pasted: true, others: pending, say: (message) => toast({ ok: false, message }) }));
+  }
 
-  const canEdit = (r: DailyRow) => Boolean(r.reportId) && (isAdmin || (r.userId === meId && r.date === today && !r.locked));
+  const canEdit = (r: DailyRow) => isAdmin || (Boolean(r.reportId) && r.userId === meId && r.date === today && !r.locked);
   const fromRow = (r: DailyRow): Draft => {
     const t = tasks.find((x) => x.id === r.edit?.taskId);
     return {
-      key: r.key, date: r.date, userId: r.userId ?? meId, taskId: t ? t.id : "", priorTaskId: r.edit?.taskId ?? null, taskChanged: false, text: r.dailySubTask,
+      key: r.key, date: r.date, userId: r.userId ?? (people.some((p) => p.id === meId) ? meId : people[0]?.id ?? meId), taskId: t ? t.id : "", priorTaskId: r.edit?.taskId ?? null, taskChanged: false, text: r.dailySubTask,
       status: r.edit?.status ?? t?.status ?? "", progress: String(r.edit?.progress ?? t?.progress_pct ?? ""),
       issues: r.issues, next: r.edit?.nextTask ?? r.nextTask, remarks: r.remarks,
     };
@@ -59,6 +80,8 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
   };
   /** A new row for a person and day that already has a saved report: not saved; that row is edited instead. */
   const clash = (d: Draft) => !d.key && !(d.userId === meId && d.date === today) && Boolean(saved(d.date, d.userId));
+  /** The row creates a new report (no saved report for this person and day yet): files can be chosen before saving. */
+  const isNew = (d: Draft) => !(d.key && rows.find((r) => r.key === d.key)?.reportId) && !saved(d.date, d.userId);
   const open = () => { setError(null); setDraft(blank(today, people.some((p) => p.id === meId) ? meId : people[0]?.id ?? meId)); };
 
   async function save() {
@@ -67,15 +90,27 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
     // the row keeps the task entry it has unless the Main Task was changed or cleared in this edit
     const change = reportItemChange({ priorTaskId: draft.priorTaskId, task: t, changed: draft.taskChanged, status: draft.status, progress: draft.progress });
     setSaving(true);
-    const r = await saveDailyRow({
+    const r = await reach(() => saveDailyRow({
       report_id: draft.key ? rows.find((x) => x.key === draft.key)?.reportId ?? null : null,
       project_id: projectId, user_id: draft.userId, report_date: draft.date, update_text: draft.text,
       task_id: change.items[0]?.task_id ?? null, status: change.items[0]?.status_after ?? null, progress: change.items[0]?.progress_after ?? null,
       issues: draft.issues, next_task_text: draft.next, remarks: draft.remarks, remove_task_ids: change.remove_task_ids,
-    });
+    }));
     setSaving(false);
+    // nothing was uploaded before this point: if saving failed, the chosen files are still here, unstored
     if (!r.ok) { setError(r.message ?? "Couldn't save the row."); return; }
     toast({ ok: true, message: "Daily update saved" });
+    if ((pending.length || taskPending.length) && r.data) {
+      // the report exists now: its page attaches the files (progress, reasons, Retry) to exactly this report,
+      // the task row's ones to the Main Task saved with it (none chosen: the whole report)
+      carryToReport(r.data.id, pending);
+      carryToReport(r.data.id, taskPending.map((x) => ({ ...x, taskId: t?.id ?? null, taskLabel: t ? taskName(t) : undefined })));
+      setPending([]);
+      setTaskPending([]);
+      setDraft(null);
+      router.push(`/daily-reports/${r.data.id}`);
+      return;
+    }
     setDraft(null);
     if (draft.date < from) router.push(`?${new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(query)), from: draft.date })}`);
     else if (fill) router.replace(`?${query}`);   // the overdue report is saved: drop ?fill= so the row isn't offered again
@@ -91,7 +126,7 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
     const dayNo = d.date ? projectDayNumber(start, d.date) : null;
     const choice = rowDateChoice(isAdmin, start, today);
     return [
-      <tr key="editor" data-testid="daily-row-editor">
+      <tr key="editor" data-testid="daily-row-editor" onPaste={(e) => pasteIntoRow(e, d, task)}>
         <td className={`${cell} text-center whitespace-nowrap align-middle`}>{dayNo ? `Day ${dayNo}` : "—"}</td>
         <td className={cell}>
           {/* the calendar ignores clicks on days outside min–max, so it is offered only when there is a day to choose and the range is spelled out */}
@@ -115,10 +150,17 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
             {mine.map((t) => <option key={t.id} value={t.id}>{t.sub ? `${t.label} — ${t.sub}` : t.label}</option>)}
           </select>
           <textarea aria-label="Daily Sub Task" rows={4} className={`${box} mt-1`} placeholder={"Work done that day\na. …\nb. …"} value={d.text} onChange={(e) => set({ text: e.target.value })} />
+          {task || taskPending.length ? (
+            <>
+              <PendingFiles variant="task" task={task ? taskName(task) : ""} files={taskPending} onChange={setTaskPending} maxFiles={maxFiles}
+                used={savedFiles(d) + pending.length} others={pending} disabled={saving} />
+              {!task && taskPending.length ? <p className="mt-1 text-xs text-signal-amber">No Main Task chosen: these will be attached to the whole update.</p> : null}
+            </>
+          ) : null}
         </td>
         <td className={`${cell} text-center`}>
-          {isAdmin && !d.key ? (
-            <select aria-label="Assigned To" className={box} value={d.userId} onChange={(e) => setDraft(blank(d.date, e.target.value))}>
+          {isAdmin && !rows.find((r) => r.key === d.key)?.reportId ? (
+            <select aria-label="Assigned To" className={box} value={d.userId} onChange={(e) => setDraft({ ...blank(d.date, e.target.value), key: d.key })}>
               {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           ) : <span className="block pt-1.5">{people.find((p) => p.id === d.userId)?.name ?? rows.find((r) => r.key === d.key)?.assignedTo}</span>}
@@ -136,7 +178,13 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
                 </label>
               ) : null}
             </>
-          ) : <span className="block pt-1.5 text-center text-ink-faint">—</span>}
+          ) : (
+            // a status belongs to the Main Task: the field is shown from the start and opens once a task is chosen
+            <>
+              <select aria-label="Status" className={box} disabled value=""><option value="">{mine.length ? "Choose task" : "No open task"}</option></select>
+              <span data-testid="status-hint" className="mt-1 block text-xs text-ink-soft">{mine.length ? "Pick the Main Task first to set its status." : "No open task is assigned to this person here."}</span>
+            </>
+          )}
         </td>
         <td className={cell}><textarea aria-label="Issues" rows={4} className={box} value={d.issues} onChange={(e) => set({ issues: e.target.value })} /></td>
         <td className={cell}><textarea aria-label="Next Task" rows={4} className={box} value={d.next} onChange={(e) => set({ next: e.target.value })} /></td>
@@ -144,9 +192,15 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
       </tr>,
       <tr key="editor-actions">
         <td colSpan={DAILY_HEAD.length} className="border border-line bg-steel-wash/60 px-3 py-2">
+          {isNew(d) || pending.length ? (
+            <div className="mb-3 space-y-1">
+              <p className="text-xs font-semibold">Photos and files</p>
+              <PendingFiles files={pending} onChange={setPending} maxFiles={maxFiles} used={savedFiles(d) + taskPending.length} others={taskPending} disabled={saving} compact />
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={save} pending={saving} disabled={clash(d)}>Save row</Button>
-            <Button size="sm" variant="secondary" onClick={() => setDraft(null)} disabled={saving}>Cancel</Button>
+            <Button size="sm" onClick={save} pending={saving} disabled={clash(d)}>{pending.length + taskPending.length ? `Save row with ${pending.length + taskPending.length === 1 ? "1 file" : `${pending.length + taskPending.length} files`}` : "Save row"}</Button>
+            <Button size="sm" variant="secondary" onClick={close} disabled={saving}>Cancel</Button>
             {clash(d) ? <span role="alert" className="text-sm text-signal-red">This person already has a saved report for this day. It is not replaced; cancel and use Edit on that row.</span>
               : !d.key && saved(d.date, d.userId) ? <span className="text-sm text-ink-soft">You already have a row for today; saving updates it.</span>
               : !d.key && d.date < today ? <span className="text-sm text-ink-soft">Filling in the report for {sheetDate(d.date)} on this person's behalf.</span> : null}

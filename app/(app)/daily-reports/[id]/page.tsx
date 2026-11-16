@@ -31,12 +31,20 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const row: DailyRow = {
     key: r.id, date: r.report_date, reportId: null, userId: r.user_id, locked: r.locked, edit: null, offDay: false, assignedTo: r.author?.full_name ?? "",
     dayNo: r.project ? projectDayNumber(projectStart(r.project), r.report_date) : null,
-    mainTask: items.map((i) => (i.parent
-      ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
-      : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after })),
+    mainTask: items.map((i) => ({
+      ...(i.parent
+        ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
+        : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after }),
+      // the task row's own screenshots and photos (migration 25)
+      taskId: i.task_id,
+      files: attachments.filter((a) => a.task_id === i.task_id).map((a) => ({ id: a.id, name: a.file_name, mime: a.mime_type, url: a.url })),
+    })),
     dailySubTask: r.update_text, issues: r.issues ?? "", remarks: r.remarks ?? "",
     nextTask: r.next_task ? taskLabel(r.next_task.code, r.next_task.title) : r.next_task_text ?? "",
   };
+  // what a file can be attached to here: the whole report, or one of its task rows
+  const taskRows = items.map((i) => ({ id: i.task_id, label: i.parent ? `${taskLabel(i.parent.code, i.parent.title)} — ${letterOf(i.task_code)}. ${i.task_title}` : taskLabel(i.task_code, i.task_title) }));
+  const taskOf = new Map(taskRows.map((t) => [t.id, t.label]));
   return (
     <>
       <PageHeader title={`${r.author?.full_name ?? "Report"}, ${fmtDay(r.report_date)}`}
@@ -54,8 +62,8 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         <div className="space-y-6">
           <Section title="Photos and files" aside={r.locked ? <Badge signal="done">Locked</Badge> : undefined}>
             <div className="space-y-4">
-              <AttachmentGallery files={attachments} canDelete={canDeleteFiles} />
-              {canUpload && r.project_id ? <FileUploader projectId={r.project_id} reportId={r.id} existingCount={attachments.length} maxFiles={settings?.attachment_max_files ?? 10} /> : null}
+              <AttachmentGallery files={attachments.map((a) => ({ ...a, task: a.task_id ? taskOf.get(a.task_id) ?? null : null }))} canDelete={canDeleteFiles} />
+              {canUpload && r.project_id ? <FileUploader projectId={r.project_id} reportId={r.id} existingCount={attachments.length} maxFiles={settings?.attachment_max_files ?? 10} tasks={taskRows} /> : null}
             </div>
           </Section>
         </div>

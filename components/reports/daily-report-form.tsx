@@ -11,12 +11,16 @@ import { useToast } from "@/components/toast";
 import { DailyHead, DayCells } from "@/components/reports/daily-log-table";
 import { reportItemChange } from "@/lib/report-items";
 import type { TaskStatus } from "@/lib/auth/capabilities";
+import { PendingFiles, reach, withAdded, type PendingFile } from "@/components/reports/pending-files";
+import { carryToReport, imagesFromPaste } from "@/components/reports/file-uploader";
 
 /** One of my open tasks / subtasks: label "4. Task" (+ "a. Subtask"), and the statuses I may move it to. */
 export type MainTaskOption = { id: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null; done: boolean };
 type Existing = {
   update_text: string; issues: string | null; next_task_text: string | null; remarks: string | null;
   daily_report_items: { task_id: string | null; progress_after: number | null; status_after: string | null }[];
+  /** files already attached (counted against the files-per-report limit) */
+  daily_report_attachments?: unknown[];
 } | null;
 
 const schema = z.object({
@@ -36,12 +40,18 @@ type V = z.infer<typeof schema>;
  * A task entry the update already has is kept on every save (also once the task is Completed); it is replaced
  * or removed only when I choose a different Main Task or clear it. The page keys this form by project.
  */
-export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }: {
+export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, maxFiles = 10 }: {
   projectId: string; date: string; dayNo: number | null; me: string; tasks: MainTaskOption[]; existing: Existing;
+  /** files per report (workspace setting); photos and files can be added before a new update is submitted */
+  maxFiles?: number;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
+  const [pending, setPending] = useState<PendingFile[]>([]);
+  // screenshots/photos for the task row itself (linked to the Main Task when saved; migration 25)
+  const [taskPending, setTaskPending] = useState<PendingFile[]>([]);
+  const savedFiles = existing?.daily_report_attachments?.length ?? 0;
   const prior = existing?.daily_report_items.find((i) => i.task_id && tasks.some((t) => t.id === i.task_id));
   const f = useForm<V>({
     resolver: zodResolver(schema),
@@ -55,6 +65,18 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
   const [taskId, setTaskId] = useState(f.getValues("task_id"));
   const [taskChanged, setTaskChanged] = useState(false);
   const task = tasks.find((t) => t.id === taskId);
+  const taskName = task ? (task.sub ? `${task.label} — ${task.sub}` : task.label) : "";
+  const fileCount = pending.length + taskPending.length;
+
+  /** Ctrl+V anywhere in the task row (while a Main Task is chosen) attaches the screenshot to that task row. */
+  function pasteIntoRow(e: React.ClipboardEvent) {
+    if (!task || f.formState.isSubmitting) return;
+    const images = imagesFromPaste(e.nativeEvent);
+    if (!images) return;
+    e.preventDefault();                               // the page-wide paste handlers leave it alone
+    // computed first, then set: a refusal message (toast) must not be raised from inside a React state update
+    setTaskPending(withAdded(taskPending, images, { room: Math.max(0, maxFiles - savedFiles - pending.length - taskPending.length), maxFiles, pasted: true, others: pending, say: (message) => toast({ ok: false, message }) }));
+  }
 
   function pickTask(id: string) {
     const t = tasks.find((x) => x.id === id);
@@ -67,13 +89,22 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
 
   async function onSubmit(v: V) {
     const t = tasks.find((x) => x.id === taskId);
-    const r = await saveReport({
+    const r = await reach(() => saveReport({
       project_id: projectId, update_text: v.update_text, issues: v.issues, next_task_id: null,
       next_task_text: v.next_task_text, remarks: v.remarks,
       ...reportItemChange({ priorTaskId: prior?.task_id ?? null, task: t, changed: taskChanged, status: v.status, progress: v.progress }),
-    });
+    }));
     setResult(r);
-    if (r.ok && r.data) { toast({ ok: true, message: existing ? "Daily update saved" : "Daily update submitted" }); router.push(`/daily-reports/${r.data.id}`); }
+    // nothing was uploaded before this point: if saving failed, the chosen files are still here, unstored
+    if (r.ok && r.data) {
+      toast({ ok: true, message: existing ? "Daily update saved" : "Daily update submitted" });
+      carryToReport(r.data.id, pending);            // the report page attaches them (progress, Retry) to this report
+      // the task row's files go to the Main Task saved with the update (none chosen: the whole report)
+      carryToReport(r.data.id, taskPending.map((x) => ({ ...x, taskId: t?.id ?? null, taskLabel: t ? taskName : undefined })));
+      setPending([]);
+      setTaskPending([]);
+      router.push(`/daily-reports/${r.data.id}`);
+    }
   }
 
   const box = "w-full rounded-md border border-line bg-panel px-2 py-1.5 text-sm";
@@ -84,7 +115,7 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
         <table className="w-full min-w-[1000px] border-collapse text-sm">
           <thead><DailyHead /></thead>
           <tbody>
-            <tr>
+            <tr data-testid="task-row" onPaste={pasteIntoRow}>
               <DayCells date={date} dayNo={dayNo} />
               <td className={`${cell} min-w-72`}>
                 <select aria-label="Main Task" className={box} value={taskId} onChange={(e) => pickTask(e.target.value)}>
@@ -94,6 +125,13 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
                 {task?.sub ? <p className="mt-1 text-xs text-ink-soft">Subtask {task.sub}</p> : null}
                 <textarea aria-label="Daily Sub Task" rows={4} className={`${box} mt-1.5`} placeholder={"Work done today\na. …\nb. …"} {...f.register("update_text")} />
                 {f.formState.errors.update_text ? <p className="mt-1 text-xs text-signal-red">{f.formState.errors.update_text.message}</p> : null}
+                {task || taskPending.length ? (
+                  <>
+                    <PendingFiles variant="task" task={taskName} files={taskPending} onChange={setTaskPending} maxFiles={maxFiles}
+                      used={savedFiles + pending.length} others={pending} disabled={f.formState.isSubmitting} />
+                    {!task && taskPending.length ? <p className="mt-1 text-xs text-signal-amber">No Main Task chosen: these will be attached to the whole update.</p> : null}
+                  </>
+                ) : null}
               </td>
               <td className={`${cell} whitespace-nowrap text-center align-middle`}>{me}</td>
               <td className={`${cell} w-40`}>
@@ -110,7 +148,13 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
                       </label>
                     ) : <p className="mt-1 text-xs text-ink-soft">Progress from subtasks</p>}
                   </>
-                ) : <span className="block pt-1.5 text-center text-ink-faint">—</span>}
+                ) : (
+                  // a status belongs to the Main Task: the field is shown from the start and opens once a task is chosen
+                  <>
+                    <select aria-label="Status" className={box} disabled value=""><option value="">{tasks.length ? "Choose task" : "No open task"}</option></select>
+                    <p data-testid="status-hint" className="mt-1 text-xs text-ink-soft">{tasks.length ? "Pick your Main Task first to set its status." : "No open task is assigned to you here."}</p>
+                  </>
+                )}
               </td>
               <td className={`${cell} min-w-28`}><textarea aria-label="Issues" rows={4} className={box} {...f.register("issues")} /></td>
               <td className={`${cell} min-w-36`}><textarea aria-label="Next Task" rows={4} className={box} {...f.register("next_task_text")} /></td>
@@ -119,8 +163,14 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing }:
           </tbody>
         </table>
       </div>
+      {existing ? null : (
+        <section aria-label="Photos and files" className="space-y-2">
+          <h3 className="text-sm font-semibold">Photos and files</h3>
+          <PendingFiles files={pending} onChange={setPending} maxFiles={maxFiles} used={taskPending.length} others={taskPending} disabled={f.formState.isSubmitting} />
+        </section>
+      )}
       <FormMessage result={result && !result.ok ? result : null} />
-      <Button type="submit" pending={f.formState.isSubmitting}>{existing ? "Save today's update" : "Submit daily update"}</Button>
+      <Button type="submit" pending={f.formState.isSubmitting}>{`${existing ? "Save today's update" : "Submit daily update"}${fileCount ? ` with ${fileCount === 1 ? "1 file" : `${fileCount} files`}` : ""}`}</Button>
     </form>
   );
 }

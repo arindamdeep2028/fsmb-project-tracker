@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAILY_HEAD, dailyCsvLine, rowDateChoice, type DailyRow } from "@/lib/sheet";
+import { DAILY_HEAD, dailyCsvLine, dayGroups, rowDateChoice, type DailyRow } from "@/lib/sheet";
 import { reportOrder } from "@/lib/auth/capabilities";
 import { overdueReports, overdueWindowStart, type OverdueInput } from "@/lib/overdue";
 import { dailyRowInput } from "@/lib/validation";
@@ -26,6 +26,23 @@ describe("Daily Reports sheet format", () => {
       "Rahim", "In progress", "Camera drift", "Calibrate", "",
     ]);
     expect(dailyCsvLine(row)).toHaveLength(head.length);
+  });
+});
+
+describe("project-day rows", () => {
+  const line = (key: string, date: string, userId: string | null): DailyRow => ({
+    key, date, dayNo: 1, offDay: false, reportId: userId ? key : null, userId, locked: false, edit: null,
+    mainTask: [], dailySubTask: "", assignedTo: userId ?? "", issues: "", nextTask: "", remarks: "",
+  });
+  it("puts several people's updates for one date in one row, keeping each update and its order", () => {
+    const rows = [line("a", "2026-11-13", "deep"), line("b", "2026-11-13", "imam"), line("c", "2026-11-13", "masrur"), line("d", "2026-11-12", "deep"), line("e", "2026-11-11", null)];
+    const g = dayGroups(rows);
+    expect(g.map((x) => x.map((r) => r.key))).toEqual([["a", "b", "c"], ["d"], ["e"]]);
+    expect(g.flat()).toEqual(rows);   // nothing merged, dropped or reordered
+  });
+  it("keeps different dates in separate rows, in either order", () => {
+    expect(dayGroups([line("a", "2026-11-11", "deep"), line("b", "2026-11-12", "imam")]).length).toBe(2);
+    expect(dayGroups([])).toEqual([]);
   });
 });
 

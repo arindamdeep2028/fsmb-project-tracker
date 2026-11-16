@@ -2,7 +2,28 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { BUCKET } from "@/lib/storage";
 import { dhakaToday, fmt } from "@/lib/time";
-import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow, type ReportOrder } from "@/lib/sheet";
+import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow, type ReportOrder, type TaskFile } from "@/lib/sheet";
+
+/** Short-lived signed links (10 min) for stored files, keyed by path, read with the caller's own access. */
+async function signedUrls(supabase: Awaited<ReturnType<typeof createClient>>, paths: string[]): Promise<Record<string, string>> {
+  if (!paths.length) return {};
+  const { data } = await supabase.storage.from(BUCKET).createSignedUrls(paths, 600);
+  return Object.fromEntries((data ?? []).filter((s) => s.signedUrl).map((s) => [s.path ?? "", s.signedUrl as string]));
+}
+
+/**
+ * A task's screenshots and photos from the daily updates that list it (task-row attachments, migration 25),
+ * by report id, read with the viewer's own access (only reports they can see) and signed for 10 minutes.
+ */
+export async function taskRowFiles(taskId: string): Promise<Record<string, TaskFile[]>> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("daily_report_attachments").select("id, report_id, file_name, mime_type, storage_path, uploaded_at")
+    .eq("task_id", taskId).order("uploaded_at");
+  const urls = await signedUrls(supabase, (data ?? []).map((a) => a.storage_path));
+  const out: Record<string, TaskFile[]> = {};
+  for (const a of data ?? []) (out[a.report_id] ??= []).push({ id: a.id, name: a.file_name, mime: a.mime_type, url: urls[a.storage_path] ?? null });
+  return out;
+}
 
 /** My saved reports, in the viewer's order (lib/auth/capabilities reportOrder). */
 export async function listMyReports(userId: string, order: ReportOrder = "desc", page = 0) {
@@ -100,10 +121,16 @@ export async function projectDailyLog(
   if (from > opts.to) return [];
   const supabase = await createClient();
   let q = supabase.from("daily_reports")
-    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, locked, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_id, task_code, task_title, status_after, progress_after, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title))")
+    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, locked, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_id, task_code, task_title, status_after, progress_after, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title)), daily_report_attachments!daily_report_attachments_report_id_fkey(id, task_id, file_name, mime_type, storage_path, uploaded_at)")
     .eq("project_id", project.id).gte("report_date", from).lte("report_date", opts.to).order("submitted_at");
   if (opts.user) q = q.eq("user_id", opts.user.id);
   const { data } = await q;
+  // task-row files get a signed link for their thumbnail (read with the viewer's own access, like the gallery)
+  const taskFiles = (data ?? []).flatMap((r) => (r.daily_report_attachments ?? []).filter((a) => a.task_id));
+  const urls = await signedUrls(supabase, taskFiles.map((a) => a.storage_path));
+  const filesOf = (r: NonNullable<typeof data>[number], taskId: string): TaskFile[] => (r.daily_report_attachments ?? [])
+    .filter((a) => a.task_id === taskId).sort((a, b) => a.uploaded_at.localeCompare(b.uploaded_at))
+    .map((a) => ({ id: a.id, name: a.file_name, mime: a.mime_type, url: urls[a.storage_path] ?? null }));
   const byDate = new Map<string, NonNullable<typeof data>>();
   (data ?? []).forEach((r) => byDate.set(r.report_date, [...(byDate.get(r.report_date) ?? []), r]));
   const dates = dateRange(from, opts.to);
@@ -119,9 +146,13 @@ export async function projectDailyLog(
       return {
       ...base, key: r.id, reportId: r.id, userId: r.user_id, locked: r.locked,
       edit: { taskId: items[0]?.task_id ?? null, status: items[0]?.status_after ?? null, progress: items[0]?.progress_after ?? null, nextTask: r.next_task_text ?? "" },
-      mainTask: items.map((i) => (i.parent
-        ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
-        : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after })),
+      mainTask: items.map((i) => ({
+        ...(i.parent
+          ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
+          : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after }),
+        taskId: i.task_id, files: filesOf(r, i.task_id),
+      })),
+      fileCount: (r.daily_report_attachments ?? []).length,
       dailySubTask: r.update_text,
       assignedTo: r.author?.full_name ?? "",
       issues: r.issues ?? "",

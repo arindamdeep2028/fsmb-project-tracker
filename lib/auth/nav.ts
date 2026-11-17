@@ -1,6 +1,9 @@
 import type { Session } from "@/lib/auth/session";
 
-export type NavItem = { href: string; label: string; group?: "admin" };
+export type NavItem = { href: string; label: string; group?: "admin"; icon?: "megaphone"; count?: number };
+
+/** Announcements: every signed-in user, immediately above Notifications. */
+const ANNOUNCEMENT: NavItem = { href: "/announcements", label: "Announcement", icon: "megaphone" };
 
 /** Sidebar by role (Frontend Blueprint §5): built from the same rules as the route guards. */
 export function navFor(s: Session): NavItem[] {
@@ -14,6 +17,7 @@ export function navFor(s: Session): NavItem[] {
       { href: "/projects", label: "Projects" },
       { href: "/daily-reports", label: "Daily Reports" },
       { href: "/performance", label: "Performance" },
+      ANNOUNCEMENT,
       { href: "/notifications", label: "Notifications" },
       { href: "/admin/users", label: "Users", group: "admin" },
       { href: "/admin/departments", label: "Departments", group: "admin" },
@@ -31,7 +35,7 @@ export function navFor(s: Session): NavItem[] {
   if (!isHead) items.push({ href: "/my-tasks", label: "My Tasks" });
   items.push({ href: "/daily-reports", label: "Daily Reports" }, { href: "/projects", label: "Projects" });
   if (isHead) items.push({ href: "/performance", label: "Performance" });
-  items.push({ href: "/notifications", label: "Notifications" });
+  items.push(ANNOUNCEMENT, { href: "/notifications", label: "Notifications" });
   if (!isHead) items.push({ href: "/my-performance", label: "My Performance" });
   items.push({ href: "/help", label: "Help" });
   return items;

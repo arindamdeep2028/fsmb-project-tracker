@@ -87,6 +87,53 @@ export type Database = {
           }
         ]
       }
+      announcements: {
+        Row: {
+          id: string
+          kind: "general" | "project"
+          project_id: string | null
+          title: string
+          message: string
+          priority: "Normal" | "Important" | "Urgent"
+          pinned: boolean
+          expires_at: string | null
+          author_id: string | null
+          published_at: string
+          updated_by: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          kind: "general" | "project"
+          project_id?: string | null
+          title: string
+          message: string
+          priority?: "Normal" | "Important" | "Urgent"
+          pinned?: boolean
+          expires_at?: string | null
+          author_id?: string | null
+        }
+        Update: {
+          project_id?: string | null
+          title?: string
+          message?: string
+          priority?: "Normal" | "Important" | "Urgent"
+          pinned?: boolean
+          expires_at?: string | null
+        }
+        Relationships: []
+      }
+      announcement_departments: {
+        Row: { announcement_id: string; department_id: string }
+        Insert: { announcement_id: string; department_id: string }
+        Update: { announcement_id?: string; department_id?: string }
+        Relationships: []
+      }
+      announcement_reads: {
+        Row: { announcement_id: string; user_id: string; read_at: string }
+        Insert: { announcement_id: string; user_id?: string }
+        Update: { announcement_id?: string; user_id?: string }
+        Relationships: []
+      }
       daily_report_attachments: {
         Row: {
           id: string
@@ -1413,12 +1460,16 @@ export type Database = {
     Functions: {
       admin_dashboard: { Args: Record<PropertyKey, never>; Returns: Json }
       admin_run_job: { Args: { p_job: string }; Returns: Json }
+      announcement_feed: { Args: Record<PropertyKey, never>; Returns: { id: string; kind: "general" | "project"; project_id: string | null; project_code: string | null; project_name: string | null; title: string; message: string; priority: "Normal" | "Important" | "Urgent"; pinned: boolean; expires_at: string | null; expired: boolean; published_at: string; author_id: string | null; author_name: string | null; author_role: Database["public"]["Enums"]["user_role"] | null; updated_at: string | null; updated_by_name: string | null; updated_by_role: Database["public"]["Enums"]["user_role"] | null; department_ids: string[]; department_names: string[]; read_at: string | null; can_edit: boolean; readers: number | null; audience: number | null }[] }
+      announcement_targets: { Args: Record<PropertyKey, never>; Returns: Json }
+      announcement_unread_count: { Args: Record<PropertyKey, never>; Returns: number }
       assignable_users: { Args: { p_project: string }; Returns: { user_id: string; full_name: string; role: Database["public"]["Enums"]["user_role"]; department: string; is_member: boolean }[] }
       complete_task: { Args: { p_task: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
       department_dashboard: { Args: { p_department?: string; p_from?: string; p_to?: string }; Returns: Json }
       grant_extension: { Args: { p_task: string; p_new_deadline: string; p_reason?: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
       member_contribution: { Args: { p_project: string }; Returns: { user_id: string; full_name: string; member_role: Database["public"]["Enums"]["project_member_role"]; open_tasks: number; share_pct: number; delivered_pct: number; personal_progress: number }[] }
       my_contribution: { Args: { p_project: string }; Returns: { share_pct: number; delivered_pct: number; personal_progress: number }[] }
+      mark_all_announcements_read: { Args: Record<PropertyKey, never>; Returns: number }
       my_dashboard: { Args: Record<PropertyKey, never>; Returns: Json }
       my_performance: { Args: { p_from?: string; p_to?: string }; Returns: { user_id: string; full_name: string; department: string; assigned: number; completed: number; late: number; on_time_pct: number; red_events: number; daily_updates: number; score: number }[] }
       my_projects_dashboard: { Args: Record<PropertyKey, never>; Returns: Json }
@@ -1427,6 +1478,7 @@ export type Database = {
       project_engineers: { Args: { p_project: string }; Returns: { user_id: string; full_name: string }[] }
       project_performance: { Args: { p_project: string; p_from?: string; p_to?: string }; Returns: { user_id: string; full_name: string; member_role: Database["public"]["Enums"]["project_member_role"]; assigned: number; completed: number; late: number; on_time_pct: number; red_events: number; daily_updates: number; score: number }[] }
       project_progress: { Args: { p_project: string }; Returns: Json }
+      save_announcement: { Args: { p: Json }; Returns: string }
       save_daily_report: { Args: { p: Json }; Returns: string }
       save_daily_row: { Args: { p: Json }; Returns: string }
       set_project_status: { Args: { p_project: string; p_status: Database["public"]["Enums"]["project_status"]; p_reason?: string | null }; Returns: undefined }

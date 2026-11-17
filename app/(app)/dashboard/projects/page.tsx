@@ -5,6 +5,7 @@ import { getMyProjectsDashboard } from "@/lib/data/dashboards";
 import { getOverdueReports } from "@/lib/data/overdue";
 import { OverdueReports } from "@/components/reports/overdue-reports";
 import { CountLink, EmptyState, Kpi, PageHeader, Section, Table } from "@/components/ui/misc";
+import { AnnouncementBanner } from "@/components/announcements/banner";
 import { ProjectHealthTable } from "@/components/dashboards/project-table";
 import { CompletionBars } from "@/components/data/charts";
 import { ago, dhakaHour, dhakaToday, fmtDay } from "@/lib/time";
@@ -29,6 +30,7 @@ export default async function PmDashboard() {
   return (
     <>
       <PageHeader title="My Projects" lead="Where work is slipping across the projects you manage." />
+      <AnnouncementBanner />
       <OverdueReports items={overdueReports} canFill={s.isAdmin} />
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Projects" value={d.projects.length} href="/projects?managed=1" />

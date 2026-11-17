@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth/session";
 import { getAdminDashboard } from "@/lib/data/dashboards";
 import { getOverdueReports } from "@/lib/data/overdue";
 import { OverdueReports } from "@/components/reports/overdue-reports";
+import { AnnouncementBanner } from "@/components/announcements/banner";
 import { CountLink, Kpi, PageHeader, Section, Table } from "@/components/ui/misc";
 import { ProjectHealthTable } from "@/components/dashboards/project-table";
 import { LinkButton } from "@/components/ui/button";
@@ -22,6 +23,7 @@ export default async function AdminDashboard() {
     <>
       <PageHeader title="Admin dashboard" lead="The whole system: projects, people, departments and scheduled jobs."
         actions={<><LinkButton href="/admin/users">Add a user</LinkButton><LinkButton href="/projects/new" variant="primary">New project</LinkButton></>} />
+      <AnnouncementBanner />
       {failing.length ? (
         <div className="rail rail-red mb-6 rounded-lg border border-line bg-panel py-3 pl-5 pr-4">
           <span className="font-medium">A scheduled job failed:</span> {failing.map((j) => j.job).join(", ")}. <Link href="/admin/data" className="text-steel hover:underline">Open Data and jobs</Link>

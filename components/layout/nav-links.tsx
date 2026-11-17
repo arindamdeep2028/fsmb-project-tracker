@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Megaphone, Menu, X } from "lucide-react";
 import type { NavItem } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 
@@ -17,9 +17,16 @@ export function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?:
   const admin = items.filter((i) => i.group === "admin");
   const link = (i: NavItem) => (
     <Link key={i.href} href={i.href} onClick={onNavigate} aria-current={isActive(path, i.href) ? "page" : undefined}
+      data-testid={i.icon ? `nav-${i.icon}` : undefined}
       className={cn("block rounded-md px-3 py-2 text-[15px] text-white/75 hover:bg-white/8 hover:text-white",
+        i.icon && "flex items-center gap-2",
         isActive(path, i.href) && "bg-nav-active font-medium text-white")}>
-      {i.label}
+      {i.icon === "megaphone" ? <Megaphone size={17} aria-hidden className="shrink-0" /> : null}
+      {i.icon ? <span className="flex-1">{i.label}</span> : i.label}
+      {i.count ? (
+        <span data-testid="nav-count" aria-label={`${i.count} unread`}
+          className="grid h-5 min-w-5 place-items-center rounded-full bg-signal-red px-1.5 text-xs font-semibold text-white">{i.count > 99 ? "99+" : i.count}</span>
+      ) : null}
     </Link>
   );
   return (

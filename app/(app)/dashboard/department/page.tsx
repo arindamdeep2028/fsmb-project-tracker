@@ -5,6 +5,7 @@ import { getDepartments } from "@/lib/data/projects";
 import { getOverdueReports } from "@/lib/data/overdue";
 import { OverdueReports } from "@/components/reports/overdue-reports";
 import { EmptyState, Kpi, PageHeader, Section } from "@/components/ui/misc";
+import { AnnouncementBanner } from "@/components/announcements/banner";
 import { ProjectHealthTable } from "@/components/dashboards/project-table";
 import { ScoreTable } from "@/components/performance/score-table";
 import { WindowPicker } from "@/components/window-picker";
@@ -38,6 +39,7 @@ export default async function DepartmentDashboard({ searchParams }: { searchPara
     <>
       <PageHeader title={dep?.department_name ?? "Department"} lead={`Window ${fmtDate(d.window.from)} to ${fmtDate(d.window.to)}`}
         actions={<WindowPicker from={d.window.from} to={d.window.to} extra={picker} />} />
+      <AnnouncementBanner />
       <OverdueReports items={overdue} canFill={s.isAdmin} />
       <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Active projects" value={dep?.active_projects ?? 0} href={dep?.active_projects ? `/projects?dept=${dept}&status=Active` : undefined} />

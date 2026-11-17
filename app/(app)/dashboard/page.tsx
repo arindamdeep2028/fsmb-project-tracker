@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/session";
 import { getMyDashboard } from "@/lib/data/dashboards";
 import { getOverdueReports } from "@/lib/data/overdue";
 import { OverdueReports } from "@/components/reports/overdue-reports";
+import { AnnouncementBanner } from "@/components/announcements/banner";
 import { CountLink, Kpi, Meter, PageHeader, Section } from "@/components/ui/misc";
 import { TaskList } from "@/components/lists/task-list";
 import { ProgressTrend } from "@/components/data/charts";
@@ -24,6 +25,7 @@ export default async function EngineerDashboard() {
     <>
       <PageHeader title={`Hello, ${s.profile.full_name.split(" ")[0]}`} lead={`${fmtDay(dhakaToday())}, Dhaka time`} />
 
+      <AnnouncementBanner />
       <OverdueReports items={overdue} canFill={s.isAdmin} own />
 
       {d.report_expected_today ? (

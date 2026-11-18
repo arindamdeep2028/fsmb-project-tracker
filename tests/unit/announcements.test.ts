@@ -105,11 +105,12 @@ describe("sidebar", () => {
     ["admin", session({ isAdmin: true })], ["engineer", session({})], ["PM", session({ pmProjectIds: ["p"] })],
     ["department head", session({ headedDepartmentIds: ["d"] })],
   ] as const) {
-    it(`${who}: Announcement sits immediately above Notifications, with the megaphone`, () => {
+    it(`${who}: Announcement, then Project Chat directly below it, then Notifications`, () => {
       const nav = navFor(s);
       const i = nav.findIndex((n) => n.href === "/announcements");
       expect(i).toBeGreaterThanOrEqual(0);
-      expect(nav[i + 1].href).toBe("/notifications");
+      expect(nav[i + 1]).toMatchObject({ href: "/chat", label: "Project Chat", icon: "chat" });
+      expect(nav[i + 2].href).toBe("/notifications");
       expect(nav[i]).toMatchObject({ label: "Announcement", icon: "megaphone" });
     });
   }

@@ -53,6 +53,10 @@ export const notificationLabel: Record<Enums<"notification_type">, string> = {
   pm_comment: "Manager comment",
   status_changed: "Status changed",
   daily_remark: "Daily report remark",
+  chat_message: "Project chat message",
+  chat_direct: "Direct message",
+  chat_mention: "Chat mention",
+  chat_reply: "Chat reply",
 };
 
 export const PRIORITIES: Enums<"task_priority">[] = ["Important", "High", "Normal", "Low"];

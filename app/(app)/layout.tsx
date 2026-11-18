@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/auth/session";
 import { navFor } from "@/lib/auth/nav";
 import { unreadCount } from "@/lib/data/notifications";
 import { announcementUnreadCount } from "@/lib/data/announcements";
+import { chatUnreadTotal } from "@/lib/data/chat";
 import { roleLabel } from "@/lib/labels";
 import { MobileNav, NavLinks } from "@/components/layout/nav-links";
 import { NotificationBell } from "@/components/notifications/bell";
@@ -11,8 +12,9 @@ import { UserMenu } from "@/components/layout/user-menu";
 /** Signed-in shell. requireSession re-reads the live profile on every request (Frontend Blueprint §5, layer 2). */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const s = await requireSession();
-  const [unread, announcementsUnread] = await Promise.all([unreadCount(s.userId), announcementUnreadCount()]);
-  const items = navFor(s).map((i) => (i.href === "/announcements" ? { ...i, count: announcementsUnread } : i));
+  const [unread, announcementsUnread, chatUnread] = await Promise.all([unreadCount(s.userId), announcementUnreadCount(), chatUnreadTotal()]);
+  const items = navFor(s).map((i) => (i.href === "/announcements" ? { ...i, count: announcementsUnread }
+    : i.href === "/chat" ? { ...i, count: chatUnread } : i));
   const canReport = s.memberProjectIds.length > 0;
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[15rem_minmax(0,1fr)]">

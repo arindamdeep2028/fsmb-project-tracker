@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Megaphone, Menu, X } from "lucide-react";
+import { Megaphone, Menu, MessagesSquare, X } from "lucide-react";
 import type { NavItem } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,7 @@ export function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?:
         i.icon && "flex items-center gap-2",
         isActive(path, i.href) && "bg-nav-active font-medium text-white")}>
       {i.icon === "megaphone" ? <Megaphone size={17} aria-hidden className="shrink-0" /> : null}
+      {i.icon === "chat" ? <MessagesSquare size={17} aria-hidden className="shrink-0" /> : null}
       {i.icon ? <span className="flex-1">{i.label}</span> : i.label}
       {i.count ? (
         <span data-testid="nav-count" aria-label={`${i.count} unread`}

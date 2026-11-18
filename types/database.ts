@@ -134,6 +134,48 @@ export type Database = {
         Update: { announcement_id?: string; user_id?: string }
         Relationships: []
       }
+      chat_conversations: {
+        Row: { id: string; kind: "project" | "direct"; project_id: string | null; dm_user_low: string | null; dm_user_high: string | null; created_by: string | null; created_at: string; last_message_at: string | null }
+        Insert: { id?: string; kind: "project" | "direct"; project_id?: string | null; dm_user_low?: string | null; dm_user_high?: string | null; created_by?: string | null; created_at?: string; last_message_at?: string | null }
+        Update: { last_message_at?: string | null }
+        Relationships: []
+      }
+      chat_participants: {
+        Row: { conversation_id: string; user_id: string; last_read_at: string | null; first_seen_at: string }
+        Insert: { conversation_id: string; user_id: string; last_read_at?: string | null }
+        Update: { last_read_at?: string | null }
+        Relationships: []
+      }
+      chat_messages: {
+        Row: { id: string; conversation_id: string; sender_id: string | null; body: string; reply_to_id: string | null; created_at: string; deleted_at: string | null; deleted_by: string | null; edited_at: string | null; edited_by: string | null }
+        Insert: { conversation_id: string; sender_id?: string | null; body?: string; reply_to_id?: string | null }
+        Update: { deleted_at?: string | null; body?: string }
+        Relationships: []
+      }
+      chat_message_edits: {
+        Row: { id: number; message_id: string; previous_body: string; edited_by: string | null; edited_at: string }
+        Insert: { message_id: string; previous_body: string }
+        Update: { previous_body?: string }
+        Relationships: []
+      }
+      chat_mentions: {
+        Row: { message_id: string; user_id: string }
+        Insert: { message_id: string; user_id: string }
+        Update: { message_id?: string; user_id?: string }
+        Relationships: []
+      }
+      chat_attachments: {
+        Row: { id: string; message_id: string; conversation_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; uploaded_by: string | null; created_at: string }
+        Insert: { message_id: string; conversation_id: string; storage_path: string; file_name: string; uploaded_by?: string | null }
+        Update: { file_name?: string }
+        Relationships: []
+      }
+      project_member_periods: {
+        Row: { id: number; project_id: string; user_id: string; member_role: Database["public"]["Enums"]["project_member_role"]; joined_at: string; left_at: string | null; added_by: string | null; removed_by: string | null }
+        Insert: { project_id: string; user_id: string; member_role: Database["public"]["Enums"]["project_member_role"]; joined_at: string; left_at?: string | null }
+        Update: { left_at?: string | null }
+        Relationships: []
+      }
       daily_report_attachments: {
         Row: {
           id: string
@@ -1845,6 +1887,12 @@ export type Database = {
       }
     }
     Functions: {
+      chat_dm_candidates: { Args: Record<PropertyKey, never>; Returns: { user_id: string; full_name: string; role: Database["public"]["Enums"]["user_role"]; department: string | null }[] }
+      chat_inbox: { Args: Record<PropertyKey, never>; Returns: { id: string; kind: "project" | "direct"; project_id: string | null; project_code: string | null; project_name: string | null; project_archived: boolean | null; other_user_id: string | null; other_name: string | null; other_role: Database["public"]["Enums"]["user_role"] | null; last_message_at: string | null; last_body: string | null; last_sender_id: string | null; last_sender_name: string | null; last_deleted: boolean | null; last_has_files: boolean; unread: number; mentions: number; can_post: boolean; is_participant: boolean; participant_names: string | null }[] }
+      chat_member_events: { Args: { p_conv: string }; Returns: { user_id: string; full_name: string; member_role: string; joined_at: string; left_at: string | null }[] }
+      chat_message_rows: { Args: { p_conv: string; p_before?: string; p_limit?: number; p_id?: string }; Returns: { id: string; conversation_id: string; sender_id: string | null; sender_name: string | null; sender_role: Database["public"]["Enums"]["user_role"] | null; body: string; created_at: string; deleted: boolean; reply_to_id: string | null; reply_sender_id: string | null; reply_sender_name: string | null; reply_body: string | null; reply_deleted: boolean | null; attachments: Json; mention_ids: string[]; edited_at: string | null }[] }
+      chat_people: { Args: { p_conv: string }; Returns: { user_id: string; full_name: string; role: Database["public"]["Enums"]["user_role"]; member_role: string | null; access: "member" | "pm" | "admin" | "department_head"; joined_at: string | null; last_read_at: string | null }[] }
+      chat_unread_total: { Args: Record<PropertyKey, never>; Returns: number }
       admin_dashboard: { Args: Record<PropertyKey, never>; Returns: Json }
       admin_run_job: { Args: { p_job: string }; Returns: Json }
       announcement_feed: { Args: Record<PropertyKey, never>; Returns: { id: string; kind: "general" | "project"; project_id: string | null; project_code: string | null; project_name: string | null; title: string; message: string; priority: "Normal" | "Important" | "Urgent"; pinned: boolean; expires_at: string | null; expired: boolean; published_at: string; author_id: string | null; author_name: string | null; author_role: Database["public"]["Enums"]["user_role"] | null; updated_at: string | null; updated_by_name: string | null; updated_by_role: Database["public"]["Enums"]["user_role"] | null; department_ids: string[]; department_names: string[]; read_at: string | null; can_edit: boolean; readers: number | null; audience: number | null }[] }
@@ -1856,6 +1904,8 @@ export type Database = {
       grant_extension: { Args: { p_task: string; p_new_deadline: string; p_reason?: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
       member_contribution: { Args: { p_project: string }; Returns: { user_id: string; full_name: string; member_role: Database["public"]["Enums"]["project_member_role"]; open_tasks: number; share_pct: number; delivered_pct: number; personal_progress: number }[] }
       my_contribution: { Args: { p_project: string }; Returns: { share_pct: number; delivered_pct: number; personal_progress: number }[] }
+      edit_chat_message: { Args: { p_id: string; p_body: string }; Returns: undefined }
+      mark_chat_read: { Args: { p_conv: string }; Returns: undefined }
       mark_all_announcements_read: { Args: Record<PropertyKey, never>; Returns: number }
       my_dashboard: { Args: Record<PropertyKey, never>; Returns: Json }
       my_performance: { Args: { p_from?: string; p_to?: string }; Returns: { user_id: string; full_name: string; department: string; assigned: number; completed: number; late: number; on_time_pct: number; red_events: number; daily_updates: number; score: number }[] }
@@ -1872,12 +1922,14 @@ export type Database = {
       tasklist_update_task: { Args: { p_task: string; p: Json }; Returns: undefined }
       set_project_status: { Args: { p_project: string; p_status: Database["public"]["Enums"]["project_status"]; p_reason?: string | null }; Returns: undefined }
       set_task_deadline: { Args: { p_task: string; p_due: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
+      send_chat_message: { Args: { p: Json }; Returns: string }
+      start_direct_chat: { Args: { p_other: string }; Returns: string }
     }
     Enums: {
       breach_reason: "plan_missing" | "exec_overdue" | "daily_update_missing" | "completed_late"
       log_action: "Assigned" | "Task created" | "Plan submitted" | "Daily update" | "Daily report submitted" | "Status change" | "Completed" | "Progress updated" | "Contribution changed" | "Extension granted" | "Red mark" | "Comment" | "Project created" | "Edited" | "Member added" | "Member removed" | "User added" | "Access denied" | "Deleted"
       log_scope: "project" | "user" | "system"
-      notification_type: "task_assigned" | "deadline_approaching" | "task_overdue" | "pm_comment" | "status_changed" | "daily_remark"
+      notification_type: "task_assigned" | "deadline_approaching" | "task_overdue" | "pm_comment" | "status_changed" | "daily_remark" | "chat_message" | "chat_direct" | "chat_mention" | "chat_reply"
       project_member_role: "pm" | "engineer"
       project_status: "Active" | "On hold" | "Completed" | "Cancelled"
       project_category: "Software" | "Embedded" | "Optical" | "Mechanical"

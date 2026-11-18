@@ -6,7 +6,7 @@ import { Bell } from "lucide-react";
 import { getBrowserClient } from "@/lib/supabase/browser";
 import { useToast } from "@/components/toast";
 
-const TOAST_TYPES = new Set(["task_assigned", "task_overdue", "pm_comment"]);
+const TOAST_TYPES = new Set(["task_assigned", "task_overdue", "pm_comment", "chat_mention", "chat_direct", "chat_reply"]);
 
 /** Unread count from the server, then live via Supabase Realtime (migration 19 adds notifications to the publication). */
 export function NotificationBell({ userId, initialUnread }: { userId: string; initialUnread: number }) {
@@ -16,16 +16,23 @@ export function NotificationBell({ userId, initialUnread }: { userId: string; in
   useEffect(() => setUnread(initialUnread), [initialUnread]);
   useEffect(() => {
     const supabase = getBrowserClient();
-    const channel = supabase
-      .channel(`notifications:${userId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, (payload) => {
-        setUnread((n) => n + 1);
-        const row = payload.new as { type: string; title: string };
-        if (TOAST_TYPES.has(row.type)) toast({ ok: true, message: row.title });
-        router.refresh();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    // join with the signed-in token (a join with the bare anon key is checked against RLS as anonymous: no events)
+    void supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session) await supabase.realtime.setAuth(data.session.access_token);
+      if (cancelled) return;
+      channel = supabase
+        .channel(`notifications:${userId}`)
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, (payload) => {
+          setUnread((n) => n + 1);
+          const row = payload.new as { type: string; title: string };
+          if (TOAST_TYPES.has(row.type)) toast({ ok: true, message: row.title });
+          router.refresh();
+        })
+        .subscribe();
+    });
+    return () => { cancelled = true; if (channel) void supabase.removeChannel(channel); };
   }, [userId, toast, router]);
   return (
     <Link href="/notifications" className="relative rounded-md p-2 text-ink-soft hover:bg-steel-wash hover:text-steel" aria-label={`Notifications, ${unread} unread`}>

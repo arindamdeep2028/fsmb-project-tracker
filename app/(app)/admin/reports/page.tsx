@@ -22,7 +22,7 @@ export default async function AdminReportsPage({ searchParams }: { searchParams:
     <>
       <PageHeader title="Reports" actions={<WindowPicker from={from} to={to} />} />
       <div className="space-y-6">
-        <Section title="Performance, all departments"><ScoreTable rows={people ?? []} csvName={`fsmb-performance-all-${from}-${to}`} logBase="/admin/log?person=" /></Section>
+        <Section title="Performance, all departments"><ScoreTable rows={people ?? []} exportName={`fsmb-performance-all-${from}-${to}`} logBase="/admin/log?person=" /></Section>
         <Section title="Project reports">
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => (

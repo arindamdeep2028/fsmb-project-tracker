@@ -6,5 +6,5 @@ export default async function ProjectLogPage({ params }: { params: Promise<{ pro
   const { projectId } = await params;
   const { project } = await projectContext(projectId, { manager: true });
   const rows = await listActivity({}, { projectId });
-  return <LogTable rows={rows} csvName={`${project.code}-log`} />;
+  return <LogTable rows={rows} exportName={`${project.code}-log`} />;
 }

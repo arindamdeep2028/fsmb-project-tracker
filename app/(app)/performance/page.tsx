@@ -42,7 +42,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     <>
       <PageHeader title="Performance" lead={s.isAdmin ? "Scores for the chosen window. Open a person to see their performance." : "Scores for the chosen window. Open a person to see their log."} actions={<WindowPicker from={v.from} to={v.to} extra={select} />} />
       {v.rows
-        ? <ScoreTable rows={v.rows} csvName={`fsmb-performance-${v.from}-${v.to}`} profile={profile} />
+        ? <ScoreTable rows={v.rows} exportName={`fsmb-performance-${v.from}-${v.to}`} profile={profile} title={`Performance ${v.from} to ${v.to}`} />
         : <div data-testid="performance-error"><FormMessage result={{ ok: false, message: v.error ?? "The performance scores couldn't be loaded." }} /></div>}
     </>
   );

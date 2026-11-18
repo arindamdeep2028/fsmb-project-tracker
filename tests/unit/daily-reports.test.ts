@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAILY_HEAD, dailyCsvLine, dayGroups, rowDateChoice, type DailyRow } from "@/lib/sheet";
+import { DAILY_HEAD, DAILY_WIDTHS, dailyExcelLine, dayGroups, remarksFor, remarksForDay, rowDateChoice, sheetStatus, type DailyRow, type DayRemark } from "@/lib/sheet";
 import { reportOrder } from "@/lib/auth/capabilities";
 import { overdueReports, overdueWindowStart, type OverdueInput } from "@/lib/overdue";
 import { dailyRowInput } from "@/lib/validation";
@@ -11,21 +11,50 @@ const session = (role: Session["profile"]["role"], extra: Partial<Session> = {})
 });
 
 describe("Daily Reports sheet format", () => {
-  const head = ["Day", "Date", "Days", "Task", "Assigned To", "Status", "Issues", "Next Task", "Remarks"];
-  it("has the nine columns of the reference sheet, in order, on screen and in the CSV", () => {
+  const head = ["Day", "Date", "Days", "Task", "Assigned To", "Working Hours", "Status", "Issues", "Next Task", "Attachment", "Remarks"];
+  it("has the eleven columns of the redesigned sheet, in order, on screen and in the Excel export", () => {
     expect([...DAILY_HEAD]).toEqual(head);
+    expect(DAILY_WIDTHS).toHaveLength(head.length);
   });
-  it("puts the main task, subtask and the day's work in the Task column", () => {
+  it("shows task statuses in the sheet words (Done, On-Going, Pending) without changing the stored value", () => {
+    expect(sheetStatus("Completed")).toBe("Done");
+    expect(sheetStatus("In progress")).toBe("On-Going");
+    expect(sheetStatus("Not started")).toBe("Pending");
+    expect(sheetStatus("Blocked")).toBe("Blocked");
+    expect(sheetStatus(null)).toBe("");
+  });
+  it("puts the main task, subtask and the day's work in the Task column, and hours, files and remarks in theirs", () => {
     const row: DailyRow = {
       key: "r1", date: "2026-10-05", dayNo: 57, offDay: false, reportId: "r1", userId: "u1", locked: true, edit: null,
       mainTask: [{ label: "4. Vision alignment", sub: "a. Die center detection", status: "In progress" }],
       dailySubTask: "a. Tuned threshold\nb. Logged 20 samples", assignedTo: "Rahim", issues: "Camera drift", nextTask: "Calibrate", remarks: "",
+      hours: 4.5, fileCount: 3,
     };
-    expect(dailyCsvLine(row)).toEqual([
+    const remark: DayRemark = { id: "m1", date: "2026-10-05", recipientId: "u1", recipient: "Rahim", authorId: "a", author: "Admin One", body: "Finish the calibration", createdAt: "2026-10-05T09:20:00Z", updatedAt: "2026-10-05T09:20:00Z", edited: false };
+    expect(dailyExcelLine(row, [remark])).toEqual([
       "Day 57", "5-Oct-26", "Monday", "4. Vision alignment / a. Die center detection\na. Tuned threshold\nb. Logged 20 samples",
-      "Rahim", "In progress", "Camera drift", "Calibrate", "",
+      "Rahim", 4.5, "On-Going", "Camera drift", "Calibrate", 3, "Finish the calibration (from Admin One to Rahim)",
     ]);
-    expect(dailyCsvLine(row)).toHaveLength(head.length);
+    expect(dailyExcelLine(row)).toHaveLength(head.length);
+    expect(dailyExcelLine({ ...row, hours: null, fileCount: 0 })[5]).toBeNull();
+    expect(dailyExcelLine({ ...row, hours: null, fileCount: 0 })[9]).toBe("");
+  });
+});
+
+describe("remarks per row and per day", () => {
+  const line = (key: string, userId: string | null, remarks = ""): DailyRow => ({
+    key, date: "2026-11-17", dayNo: 43, offDay: false, reportId: userId ? key : null, userId, locked: false, edit: null,
+    mainTask: [], dailySubTask: "x", assignedTo: userId ?? "", issues: "", nextTask: "", remarks,
+  });
+  const m = (id: string, to: string, date = "2026-11-17", at = "2026-11-17T09:00:00Z"): DayRemark => ({ id, date, recipientId: to, recipient: to, authorId: "admin", author: "Admin", body: id, createdAt: at, updatedAt: at, edited: false });
+  it("gives a person only the Admin remarks addressed to them that day, then their own saved note", () => {
+    const got = remarksFor(line("r1", "deep", "old note"), [m("a", "deep"), m("b", "imam"), m("c", "deep", "2026-11-16")]);
+    expect(got.map((x) => x.id)).toEqual(["a", "legacy-r1"]);
+    expect(got[1]).toMatchObject({ legacy: true, body: "old note", author: "deep" });
+  });
+  it("collects every remark of a project day, oldest first, including one to a person with no report that day", () => {
+    const got = remarksForDay([line("r1", "deep"), line("r2", "imam")], [m("late", "imam", "2026-11-17", "2026-11-17T10:00:00Z"), m("early", "anik", "2026-11-17", "2026-11-17T08:00:00Z"), m("other", "deep", "2026-11-15")]);
+    expect(got.map((x) => x.id)).toEqual(["early", "late"]);
   });
 });
 

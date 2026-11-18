@@ -194,6 +194,7 @@ export type Database = {
       }
       daily_report_items: {
         Row: {
+          work_hours: number | null
           id: string
           report_id: string
           task_id: string
@@ -206,6 +207,7 @@ export type Database = {
           created_at: string
         }
         Insert: {
+          work_hours?: number | null
           id?: string
           report_id: string
           task_id: string
@@ -218,6 +220,7 @@ export type Database = {
           created_at?: string
         }
         Update: {
+          work_hours?: number | null
           id?: string
           report_id?: string
           task_id?: string
@@ -255,6 +258,7 @@ export type Database = {
       }
       daily_reports: {
         Row: {
+          work_hours: number | null
           id: string
           user_id: string
           project_id: string
@@ -270,6 +274,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          work_hours?: number | null
           id?: string
           user_id?: string
           project_id: string
@@ -285,6 +290,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          work_hours?: number | null
           id?: string
           user_id?: string
           project_id?: string
@@ -317,6 +323,163 @@ export type Database = {
           {
             foreignKeyName: "daily_reports_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      daily_report_assignment_changes: {
+        Row: {
+          id: number
+          report_id: string
+          project_id: string
+          report_date: string
+          from_user: string | null
+          to_user: string | null
+          changed_by: string | null
+          changed_at: string
+        }
+        Insert: {
+          id?: number
+          report_id: string
+          project_id: string
+          report_date: string
+          from_user?: string | null
+          to_user?: string | null
+          changed_by?: string | null
+          changed_at?: string
+        }
+        Update: {
+          id?: number
+          report_id?: string
+          project_id?: string
+          report_date?: string
+          from_user?: string | null
+          to_user?: string | null
+          changed_by?: string | null
+          changed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_assignment_changes_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "daily_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_assignment_changes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      daily_report_remark_history: {
+        Row: {
+          id: number
+          remark_id: string
+          action: string
+          body: string
+          recipient_id: string | null
+          changed_by: string | null
+          changed_at: string
+        }
+        Insert: {
+          id?: number
+          remark_id: string
+          action: string
+          body: string
+          recipient_id?: string | null
+          changed_by?: string | null
+          changed_at?: string
+        }
+        Update: {
+          id?: number
+          remark_id?: string
+          action?: string
+          body?: string
+          recipient_id?: string | null
+          changed_by?: string | null
+          changed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_remark_history_remark_id_fkey"
+            columns: ["remark_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_remarks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_remark_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      daily_report_remarks: {
+        Row: {
+          id: string
+          project_id: string
+          report_date: string
+          recipient_id: string
+          author_id: string
+          author_name: string
+          recipient_name: string
+          body: string
+          edit_count: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          report_date: string
+          recipient_id: string
+          author_id?: string
+          author_name?: string
+          recipient_name?: string
+          body: string
+          edit_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          report_date?: string
+          recipient_id?: string
+          author_id?: string
+          author_name?: string
+          recipient_name?: string
+          body?: string
+          edit_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_remarks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_remarks_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_remarks_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -803,6 +966,49 @@ export type Database = {
         }
         Relationships: []
       }
+      task_assignees: {
+        Row: {
+          task_id: string
+          user_id: string
+          added_by: string | null
+          added_at: string
+        }
+        Insert: {
+          task_id: string
+          user_id: string
+          added_by?: string | null
+          added_at?: string
+        }
+        Update: {
+          task_id?: string
+          user_id?: string
+          added_by?: string | null
+          added_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_assignees_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_assignees_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_assignees_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       task_comments: {
         Row: {
           id: string
@@ -856,6 +1062,187 @@ export type Database = {
             foreignKeyName: "task_comments_task_id_fkey"
             columns: ["task_id"]
             isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      task_list_comments: {
+        Row: {
+          task_id: string
+          body: string
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          task_id: string
+          body: string
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          task_id?: string
+          body?: string
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_list_comments_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_list_comments_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      tasklist_rows: {
+        Row: {
+          id: string
+          project_id: string
+          phase_task_id: string | null
+          position: number
+          title: string
+          status: Database["public"]["Enums"]["task_status"]
+          priority: Database["public"]["Enums"]["task_priority"]
+          category: string
+          comment: string
+          created_by: string | null
+          created_at: string
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          phase_task_id?: string | null
+          position: number
+          title?: string
+          status?: Database["public"]["Enums"]["task_status"]
+          priority?: Database["public"]["Enums"]["task_priority"]
+          category?: string
+          comment?: string
+          created_by?: string | null
+          created_at?: string
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          phase_task_id?: string | null
+          title?: string
+          status?: Database["public"]["Enums"]["task_status"]
+          priority?: Database["public"]["Enums"]["task_priority"]
+          category?: string
+          comment?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasklist_rows_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasklist_rows_phase_task_id_fkey"
+            columns: ["phase_task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      tasklist_row_assignees: {
+        Row: {
+          row_id: string
+          user_id: string
+          added_by: string | null
+          added_at: string
+        }
+        Insert: {
+          row_id: string
+          user_id: string
+          added_by?: string | null
+          added_at?: string
+        }
+        Update: {
+          row_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasklist_row_assignees_row_id_fkey"
+            columns: ["row_id"]
+            isOneToOne: false
+            referencedRelation: "tasklist_rows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasklist_row_assignees_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      tasklist_row_history: {
+        Row: {
+          id: number
+          row_id: string
+          changed_by: string | null
+          changed_at: string
+          before: Json
+          after: Json
+        }
+        Insert: {
+          row_id: string
+          changed_by?: string | null
+          changed_at?: string
+          before: Json
+          after: Json
+        }
+        Update: {
+          row_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasklist_row_history_row_id_fkey"
+            columns: ["row_id"]
+            isOneToOne: false
+            referencedRelation: "tasklist_rows"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      task_list_categories: {
+        Row: {
+          task_id: string
+          category: string
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          task_id: string
+          category: string
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_list_categories_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: true
             referencedRelation: "tasks"
             referencedColumns: ["id"]
           }
@@ -1481,6 +1868,8 @@ export type Database = {
       save_announcement: { Args: { p: Json }; Returns: string }
       save_daily_report: { Args: { p: Json }; Returns: string }
       save_daily_row: { Args: { p: Json }; Returns: string }
+      tasklist_add_rows: { Args: { p_project: string; p_count: number; p_phase?: string | null; p_category?: string }; Returns: string[] }
+      tasklist_update_task: { Args: { p_task: string; p: Json }; Returns: undefined }
       set_project_status: { Args: { p_project: string; p_status: Database["public"]["Enums"]["project_status"]; p_reason?: string | null }; Returns: undefined }
       set_task_deadline: { Args: { p_task: string; p_due: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
     }
@@ -1488,7 +1877,7 @@ export type Database = {
       breach_reason: "plan_missing" | "exec_overdue" | "daily_update_missing" | "completed_late"
       log_action: "Assigned" | "Task created" | "Plan submitted" | "Daily update" | "Daily report submitted" | "Status change" | "Completed" | "Progress updated" | "Contribution changed" | "Extension granted" | "Red mark" | "Comment" | "Project created" | "Edited" | "Member added" | "Member removed" | "User added" | "Access denied" | "Deleted"
       log_scope: "project" | "user" | "system"
-      notification_type: "task_assigned" | "deadline_approaching" | "task_overdue" | "pm_comment" | "status_changed"
+      notification_type: "task_assigned" | "deadline_approaching" | "task_overdue" | "pm_comment" | "status_changed" | "daily_remark"
       project_member_role: "pm" | "engineer"
       project_status: "Active" | "On hold" | "Completed" | "Cancelled"
       project_category: "Software" | "Embedded" | "Optical" | "Mechanical"

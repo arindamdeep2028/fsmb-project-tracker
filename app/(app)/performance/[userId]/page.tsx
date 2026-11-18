@@ -11,6 +11,7 @@ import { PageHeader, Section } from "@/components/ui/misc";
 import { FormMessage } from "@/components/ui/form";
 import { MetricCard, MetricLabel, MetricValue, MyPerformanceDetails } from "@/components/performance/my-performance-details";
 import { WindowPicker } from "@/components/window-picker";
+import { PerformancePdf } from "@/components/performance/performance-pdf";
 import { roleLabel, scoreBand } from "@/lib/labels";
 import { daysAgo, dhakaToday } from "@/lib/time";
 import { pct } from "@/lib/utils";
@@ -65,7 +66,10 @@ export default async function PersonPerformancePage({ params, searchParams }: {
       <PageHeader
         title={person.full_name}
         lead={<>{identity}. <Link href={`/admin/log?person=${person.id}`} className="underline decoration-dotted underline-offset-4 hover:text-steel">Open their log</Link></>}
-        actions={<WindowPicker from={from} to={to} extra={dept ? <input type="hidden" name="dept" value={dept} /> : null} />}
+        actions={<div className="flex flex-wrap items-end gap-2">
+          <WindowPicker from={from} to={to} extra={dept ? <input type="hidden" name="dept" value={dept} /> : null} />
+          {r ? <PerformancePdf person={person.full_name} identity={identity} window={{ from, to }} summary={r} records={v.records} weights={weights} /> : null}
+        </div>}
       />
       {!r ? (
         <div data-testid="person-performance-error"><FormMessage result={{ ok: false, message: v.error ?? "The performance figures couldn't be loaded." }} /></div>

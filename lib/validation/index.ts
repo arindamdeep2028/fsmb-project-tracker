@@ -35,11 +35,16 @@ export const taskPatch = z.object({
 });
 export type TaskPatch = z.input<typeof taskPatch>;
 
+/** Working hours (migration 27): more than 0, at most 24, two decimals; null = none recorded. */
+export const workHours = z.number().gt(0, "Working hours must be more than 0").max(24, "Working hours can't be more than 24")
+  .refine((n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6, "Working hours: two decimals at most").nullable().optional();
+
 export const reportItem = z.object({
   task_id: id,
   progress_after: z.number().min(0).max(100).nullable().optional(),
   status_after: taskStatus.nullable().optional(),
   note: z.string().max(3000).optional().nullable(),
+  work_hours: workHours,
 });
 export const reportInput = z.object({
   project_id: id,
@@ -48,6 +53,8 @@ export const reportInput = z.object({
   next_task_id: z.string().optional().nullable(),
   next_task_text: z.string().max(1000).optional().nullable(),
   remarks: z.string().max(3000).optional().nullable(),
+  /** hours of the day not tied to a listed task; absent = keep what is saved */
+  work_hours: workHours,
   items: z.array(reportItem).default([]),
   /** task entries the user removed on purpose (changed or cleared the Main Task); nothing else is ever removed */
   remove_task_ids: z.array(id).default([]),
@@ -67,10 +74,55 @@ export const dailyRowInput = z.object({
   progress: z.number().min(0).max(100).nullable(),
   issues: z.string().max(3000),
   next_task_text: z.string().max(1000),
-  remarks: z.string().max(3000),
+  /** hours for the row: on its Main Task when one is chosen, otherwise on the report */
+  work_hours: workHours,
   remove_task_ids: z.array(id).default([]),
 });
 export type DailyRowInput = z.input<typeof dailyRowInput>;
+
+/** An Admin's remark on a project day to one member (migration 27). `id` set = edit that remark. */
+export const remarkInput = z.object({
+  id: id.nullable().optional(),
+  project_id: id,
+  report_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date"),
+  recipient_id: id,
+  body: z.string().trim().min(1, "Write the remark").max(2000, "A remark can be 2000 characters at most"),
+});
+export type RemarkInput = z.input<typeof remarkInput>;
+
+/** Tasklist cells (migration 27). */
+export const tasklistComment = z.object({ task_id: id, body: z.string().max(500, "A comment can be 500 characters at most") });
+export const tasklistAssignee = z.object({ task_id: id, user_id: id });
+
+/** Tasklist rows and member edits (migration 28). */
+export const TASKLIST_MAX_ADD = 50;
+export const tasklistAddRows = z.object({
+  project_id: id,
+  count: z.coerce.number().int("Enter a whole number of rows").min(1, "Add at least 1 row").max(TASKLIST_MAX_ADD, `Add at most ${TASKLIST_MAX_ADD} rows at a time`),
+  phase_id: id.nullable(),
+  category: z.enum(["General", "Urgent"]).default("General"),
+});
+/** A Tasklist line's category (General Task / Urgent Task); separate from Priority. */
+export const tasklistCategory = z.enum(["General", "Urgent"]);
+export const tasklistTaskCategory = z.object({ task_id: id, category: tasklistCategory });
+/** An existing task's cells the Tasklist may change (name, status, priority); a field not sent stays as it is. */
+export const tasklistTaskPatch = z.object({
+  title: z.string().trim().min(1, "A task needs a name").max(300, "A name can be 300 characters at most").optional(),
+  status: taskStatus.optional(),
+  priority: priority.optional(),
+}).refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to save");
+/** A Tasklist row's cells; the name may stay empty until it is filled in. */
+export const tasklistRowPatch = z.object({
+  title: z.string().trim().max(300, "A name can be 300 characters at most").optional(),
+  status: taskStatus.optional(),
+  priority: priority.optional(),
+  comment: z.string().trim().max(500, "A comment can be 500 characters at most").optional(),
+  category: z.enum(["General", "Urgent"]).optional(),
+  phase_task_id: id.nullable().optional(),
+}).refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to save");
+export const tasklistRowAssignee = z.object({ row_id: id, user_id: id });
+export type TasklistRowPatch = z.input<typeof tasklistRowPatch>;
+export type TasklistTaskPatch = z.input<typeof tasklistTaskPatch>;
 
 export const projectInput = z.object({
   code: z.string().trim().min(1, "Add a project code").max(20),

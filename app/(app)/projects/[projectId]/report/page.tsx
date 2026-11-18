@@ -41,7 +41,7 @@ export default async function ProjectReportPage({ params, searchParams }: { para
         </Table>
       </Section>
       <Section title="Member performance on this project" aside={<WindowPicker from={from} to={to} />}>
-        <ScoreTable rows={perf.data ?? []} csvName={`${project.code}-performance-${from}-${to}`} />
+        <ScoreTable rows={perf.data ?? []} exportName={`${project.code}-performance-${from}-${to}`} />
       </Section>
       <Section title="Red flags now">
         {redTasks?.length ? (

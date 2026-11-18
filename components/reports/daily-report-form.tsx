@@ -10,6 +10,9 @@ import { FormMessage } from "@/components/ui/form";
 import { useToast } from "@/components/toast";
 import { DailyHead, DayCells } from "@/components/reports/daily-log-table";
 import { reportItemChange } from "@/lib/report-items";
+import { SHEET_STATUS, type DayRemark } from "@/lib/sheet";
+import { parseHours } from "@/lib/hours";
+import { RemarksCell } from "@/components/reports/sheet-cells";
 import type { TaskStatus } from "@/lib/auth/capabilities";
 import { PendingFiles, reach, withAdded, type PendingFile } from "@/components/reports/pending-files";
 import { carryToReport, imagesFromPaste } from "@/components/reports/file-uploader";
@@ -18,7 +21,8 @@ import { carryToReport, imagesFromPaste } from "@/components/reports/file-upload
 export type MainTaskOption = { id: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null; done: boolean };
 type Existing = {
   update_text: string; issues: string | null; next_task_text: string | null; remarks: string | null;
-  daily_report_items: { task_id: string | null; progress_after: number | null; status_after: string | null }[];
+  work_hours?: number | null;
+  daily_report_items: { task_id: string | null; progress_after: number | null; status_after: string | null; work_hours?: number | null }[];
   /** files already attached (counted against the files-per-report limit) */
   daily_report_attachments?: unknown[];
 } | null;
@@ -30,7 +34,7 @@ const schema = z.object({
   progress: z.string(),
   issues: z.string().max(3000),
   next_task_text: z.string().max(1000),
-  remarks: z.string().max(3000),
+  hours: z.string().refine((v) => parseHours(v).ok, { message: "Working hours: a number above 0 and up to 24, such as 1.5 or 2.25" }),
 });
 type V = z.infer<typeof schema>;
 
@@ -39,9 +43,13 @@ type V = z.infer<typeof schema>;
  * The Main Task is one of my open tasks or subtasks; its Status (and progress) is applied to the task as me.
  * A task entry the update already has is kept on every save (also once the task is Completed); it is replaced
  * or removed only when I choose a different Main Task or clear it. The page keys this form by project.
+ * Working Hours go on the Main Task (or on the update when no task is chosen). Remarks are the Admin's: shown here
+ * read-only; whatever was saved before stays as it is.
  */
-export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, maxFiles = 10 }: {
+export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, maxFiles = 10, remarks = [] }: {
   projectId: string; date: string; dayNo: number | null; me: string; tasks: MainTaskOption[]; existing: Existing;
+  /** the Admin's remarks to me for today (read-only) */
+  remarks?: DayRemark[];
   /** files per report (workspace setting); photos and files can be added before a new update is submitted */
   maxFiles?: number;
 }) {
@@ -59,7 +67,8 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
       task_id: prior?.task_id ?? "", update_text: existing?.update_text ?? "",
       status: prior?.status_after ?? tasks.find((t) => t.id === prior?.task_id)?.status ?? "",
       progress: String(prior?.progress_after ?? tasks.find((t) => t.id === prior?.task_id)?.progress_pct ?? ""),
-      issues: existing?.issues ?? "", next_task_text: existing?.next_task_text ?? "", remarks: existing?.remarks ?? "",
+      issues: existing?.issues ?? "", next_task_text: existing?.next_task_text ?? "",
+      hours: String(prior?.work_hours ?? existing?.work_hours ?? ""),
     },
   });
   const [taskId, setTaskId] = useState(f.getValues("task_id"));
@@ -89,10 +98,16 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
 
   async function onSubmit(v: V) {
     const t = tasks.find((x) => x.id === taskId);
+    const hours = parseHours(v.hours);
+    const hoursValue = hours.ok ? hours.value : null;
+    const change = reportItemChange({ priorTaskId: prior?.task_id ?? null, task: t, changed: taskChanged, status: v.status, progress: v.progress });
     const r = await reach(() => saveReport({
       project_id: projectId, update_text: v.update_text, issues: v.issues, next_task_id: null,
-      next_task_text: v.next_task_text, remarks: v.remarks,
-      ...reportItemChange({ priorTaskId: prior?.task_id ?? null, task: t, changed: taskChanged, status: v.status, progress: v.progress }),
+      next_task_text: v.next_task_text,
+      // hours on the Main Task when one is chosen (and still open), otherwise on the update itself
+      work_hours: change.items.length ? null : hoursValue,
+      items: change.items.map((i) => ({ ...i, work_hours: hoursValue })),
+      remove_task_ids: change.remove_task_ids,
     }));
     setResult(r);
     // nothing was uploaded before this point: if saving failed, the chosen files are still here, unstored
@@ -134,13 +149,18 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
                 ) : null}
               </td>
               <td className={`${cell} whitespace-nowrap text-center align-middle`}>{me}</td>
+              <td className={`${cell} w-24`}>
+                <input type="text" inputMode="decimal" aria-label="Working Hours" placeholder="e.g. 1.5" className={`${box} text-center`} {...f.register("hours")} />
+                <p className="mt-1 text-center text-[11px] text-ink-soft">{task ? "hours on this task" : "hours today"}</p>
+                {f.formState.errors.hours ? <p className="mt-1 text-xs text-signal-red">{f.formState.errors.hours.message}</p> : null}
+              </td>
               <td className={`${cell} w-40`}>
                 {task?.done ? (
                   <p className="pt-1.5 text-center text-sm">Completed<span className="mt-1 block text-xs text-ink-soft">This task is done; its entry stays in the update.</span></p>
                 ) : task ? (
                   <>
                     <select aria-label="Status" className={box} {...f.register("status")}>
-                      {[task.status, ...task.choices.filter((s) => s !== task.status)].map((s) => <option key={s}>{s}</option>)}
+                      {[task.status, ...task.choices.filter((s) => s !== task.status)].map((s) => <option key={s} value={s}>{SHEET_STATUS[s] ?? s}</option>)}
                     </select>
                     {task.is_leaf ? (
                       <label className="mt-1.5 flex items-center gap-1 text-xs text-ink-soft">Progress
@@ -158,7 +178,11 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
               </td>
               <td className={`${cell} min-w-28`}><textarea aria-label="Issues" rows={4} className={box} {...f.register("issues")} /></td>
               <td className={`${cell} min-w-36`}><textarea aria-label="Next Task" rows={4} className={box} {...f.register("next_task_text")} /></td>
-              <td className={`${cell} min-w-36`}><textarea aria-label="Remarks" rows={4} className={box} {...f.register("remarks")} /></td>
+              <td className={`${cell} text-center align-middle text-ink-soft`}>{savedFiles ? savedFiles : "-"}</td>
+              <td className={`${cell} min-w-32 text-center align-middle`} data-testid="form-remarks">
+                <RemarksCell remarks={[...remarks, ...(existing?.remarks ? [{ id: "legacy", date, recipientId: "", recipient: me, authorId: null, author: me, body: existing.remarks, createdAt: "", updatedAt: "", edited: false, legacy: true }] : [])]}
+                  projectId={projectId} date={date} people={[]} isAdmin={false} label="today" />
+              </td>
             </tr>
           </tbody>
         </table>

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { DataTable, type ColumnDef } from "@/components/data/data-table";
+import { DataTable, type ColumnDef, type ExportColumn, type SortOption } from "@/components/data/data-table";
 import { Badge, CountLink } from "@/components/ui/misc";
 import { scoreBand } from "@/lib/labels";
 import { pct } from "@/lib/utils";
@@ -13,8 +13,20 @@ type Row = { user_id: string; full_name: string; department?: string | null; mem
  * late, on time, red-marked) on My Tasks, daily reports on Daily Reports — limited to what the viewer may see.
  * `profile` (Performance page, Admin): the whole row — and the person's name — opens that person's performance
  * page, `${base}${user_id}${query}`; it takes the place of `logBase`.
+ * The filter box finds a person by name only; the Sort list orders by name (A–Z, Z–A) or keeps the score order.
  */
-export function ScoreTable({ rows, csvName, logBase, drill, profile }: { rows: Row[]; csvName?: string; logBase?: string; drill?: { from: string; to: string }; profile?: { base: string; query?: string } }) {
+const SORTS: SortOption[] = [
+  { label: "Default order", sorting: [] },
+  { label: "Name A–Z", sorting: [{ id: "full_name", desc: false }] },
+  { label: "Name Z–A", sorting: [{ id: "full_name", desc: true }] },
+];
+const EXPORT: Record<string, ExportColumn> = {
+  full_name: { width: 200 }, department: { width: 150 }, assigned: { width: 90, kind: "number" }, completed: { width: 100, kind: "number" },
+  late: { width: 70, kind: "number" }, on_time_pct: { width: 90, kind: "percent" }, red_events: { width: 90, kind: "number" },
+  daily_updates: { width: 110, kind: "number" }, score: { width: 80, kind: "score" },
+};
+
+export function ScoreTable({ rows, exportName, logBase, drill, profile, title }: { rows: Row[]; exportName?: string; logBase?: string; drill?: { from: string; to: string }; profile?: { base: string; query?: string }; title?: string }) {
   const profileHref = profile ? (r: Row) => `${profile.base}${r.user_id}${profile.query ?? ""}` : undefined;
   const tasks = (r: Row, filter: string) => `/my-tasks?filter=${filter}&user=${r.user_id}&from=${drill?.from}&to=${drill?.to}`;
   const count = (key: "assigned" | "completed" | "late" | "red_events", filter: string, label: string): ColumnDef<Row, unknown> => ({
@@ -22,8 +34,8 @@ export function ScoreTable({ rows, csvName, logBase, drill, profile }: { rows: R
     cell: ({ row }) => (drill ? <CountLink href={tasks(row.original, filter)} value={row.original[key]} label={`${row.original.full_name} ${label.toLowerCase()}`} /> : row.original[key]),
   });
   const personHref = logBase ? `${logBase}` : drill ? "/my-tasks?user=" : null;
-  const columns: ColumnDef<Row, unknown>[] = [
-    { accessorKey: "full_name", header: "Person", cell: ({ row }) => profileHref
+  const columns: ColumnDef<Row, unknown>[] = ([
+    { accessorKey: "full_name", header: "Person", enableGlobalFilter: true, cell: ({ row }) => profileHref
       ? <Link href={profileHref(row.original)} className="font-medium hover:text-steel hover:underline">{row.original.full_name}</Link>
       : personHref ? <Link href={`${personHref}${row.original.user_id}`} className="font-medium hover:text-steel hover:underline">{row.original.full_name}</Link> : row.original.full_name },
     ...(rows.some((r) => r.department !== undefined) ? [{ accessorKey: "department", header: "Department" } as ColumnDef<Row, unknown>] : []),
@@ -38,6 +50,7 @@ export function ScoreTable({ rows, csvName, logBase, drill, profile }: { rows: R
       ? <CountLink href={`/daily-reports?user=${row.original.user_id}&from=${drill.from}&to=${drill.to}`} value={row.original.daily_updates} label={`${row.original.full_name} daily updates`} />
       : row.original.daily_updates) },
     { accessorKey: "score", header: "Score", cell: ({ getValue }) => { const v = getValue() as number | null; const b = scoreBand(v); return <span className="inline-flex items-center gap-2"><span className="font-semibold">{v ?? "—"}</span><Badge signal={b.signal}>{b.label}</Badge></span>; } },
-  ];
-  return <DataTable data={rows} columns={columns} csvName={csvName} filterPlaceholder="Find a person" empty="No activity in this window." rowHref={profileHref} />;
+  ] as ColumnDef<Row, unknown>[]).map((c) => ("accessorKey" in c && c.accessorKey === "full_name" ? c : { ...c, enableGlobalFilter: false }));
+  return <DataTable data={rows} columns={columns} exportName={exportName} exportTitle={title ?? "Performance"} exportColumns={EXPORT}
+    filterPlaceholder="Search by employee name" empty="No activity in this window." rowHref={profileHref} sortOptions={SORTS} />;
 }

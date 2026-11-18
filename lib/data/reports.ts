@@ -2,7 +2,8 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { BUCKET } from "@/lib/storage";
 import { dhakaToday, fmt } from "@/lib/time";
-import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow, type ReportOrder, type TaskFile } from "@/lib/sheet";
+import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow, type DayRemark, type ReportOrder, type TaskFile } from "@/lib/sheet";
+import { totalHours } from "@/lib/hours";
 
 /** Short-lived signed links (10 min) for stored files, keyed by path, read with the caller's own access. */
 async function signedUrls(supabase: Awaited<ReturnType<typeof createClient>>, paths: string[]): Promise<Record<string, string>> {
@@ -102,6 +103,40 @@ export async function getReportFormData(userId: string, projectId?: string) {
   };
 }
 
+/**
+ * The Admin's remarks on a project's days (migration 27), oldest first. RLS decides what the viewer reads: an Admin
+ * and the project's managers every remark, anyone else only the remarks addressed to them.
+ */
+export async function projectRemarks(projectId: string, from: string, to: string): Promise<DayRemark[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("daily_report_remarks")
+    .select("id, report_date, recipient_id, author_id, author_name, recipient_name, body, edit_count, created_at, updated_at, recipient:profiles!daily_report_remarks_recipient_id_fkey(full_name), author:profiles!daily_report_remarks_author_id_fkey(full_name)")
+    .eq("project_id", projectId).gte("report_date", from).lte("report_date", to).order("created_at");
+  return (data ?? []).map((m) => ({
+    id: m.id, date: m.report_date, recipientId: m.recipient_id, recipient: m.recipient_name || m.recipient?.full_name || "",
+    authorId: m.author_id, author: m.author_name || m.author?.full_name || "Admin", body: m.body,
+    createdAt: m.created_at, updatedAt: m.updated_at, edited: m.edit_count > 0,
+  }));
+}
+
+/**
+ * Every file of one report, signed for 10 minutes with the viewer's own access (RLS and the Storage read policy
+ * decide), each with the task row it belongs to. Used by the Attachment column's gallery.
+ */
+export async function reportFiles(reportId: string) {
+  const supabase = await createClient();
+  const [{ data: files }, { data: items }] = await Promise.all([
+    supabase.from("daily_report_attachments").select("id, file_name, mime_type, size_bytes, storage_path, task_id, uploaded_at").eq("report_id", reportId).order("uploaded_at"),
+    supabase.from("daily_report_items").select("task_id, task_code, task_title").eq("report_id", reportId),
+  ]);
+  const urls = await signedUrls(supabase, (files ?? []).map((f) => f.storage_path));
+  const task = new Map((items ?? []).map((i) => [i.task_id, taskLabel(i.task_code, i.task_title)]));
+  return (files ?? []).map((f) => ({
+    id: f.id, file_name: f.file_name, mime_type: f.mime_type, size_bytes: f.size_bytes, url: urls[f.storage_path] ?? null,
+    task: f.task_id ? task.get(f.task_id) ?? null : null,
+  }));
+}
+
 /** Day 1 of a project's Daily Follow Up: its start date, or the Dhaka date it was created. */
 export function projectStart(p: { start_date: string | null; created_at: string }): string {
   return p.start_date ?? fmt(p.created_at, "yyyy-MM-dd");
@@ -121,7 +156,7 @@ export async function projectDailyLog(
   if (from > opts.to) return [];
   const supabase = await createClient();
   let q = supabase.from("daily_reports")
-    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, locked, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_id, task_code, task_title, status_after, progress_after, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title)), daily_report_attachments!daily_report_attachments_report_id_fkey(id, task_id, file_name, mime_type, storage_path, uploaded_at)")
+    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, locked, work_hours, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_id, task_code, task_title, status_after, progress_after, work_hours, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title)), daily_report_attachments!daily_report_attachments_report_id_fkey(id, task_id, file_name, mime_type, storage_path, uploaded_at)")
     .eq("project_id", project.id).gte("report_date", from).lte("report_date", opts.to).order("submitted_at");
   if (opts.user) q = q.eq("user_id", opts.user.id);
   const { data } = await q;
@@ -145,7 +180,11 @@ export async function projectDailyLog(
       const items = [...(r.daily_report_items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
       return {
       ...base, key: r.id, reportId: r.id, userId: r.user_id, locked: r.locked,
-      edit: { taskId: items[0]?.task_id ?? null, status: items[0]?.status_after ?? null, progress: items[0]?.progress_after ?? null, nextTask: r.next_task_text ?? "" },
+      edit: {
+        taskId: items[0]?.task_id ?? null, status: items[0]?.status_after ?? null, progress: items[0]?.progress_after ?? null, nextTask: r.next_task_text ?? "",
+        taskHours: items[0]?.work_hours ?? null, reportHours: r.work_hours ?? null,
+      },
+      hours: totalHours([r.work_hours, ...items.map((i) => i.work_hours)]),
       mainTask: items.map((i) => ({
         ...(i.parent
           ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }

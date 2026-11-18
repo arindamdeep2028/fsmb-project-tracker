@@ -4,10 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { type ActionResult, fail } from "@/lib/errors";
 import { BUCKET } from "@/lib/storage";
 import { checkUploadClaim, checkUploadContent, deleteRowThenFiles } from "@/lib/uploads";
-import { dailyRowInput, firstIssue, reportInput, type DailyRowInput, type ReportInput } from "@/lib/validation";
+import { dailyRowInput, firstIssue, remarkInput, reportInput, type DailyRowInput, type RemarkInput, type ReportInput } from "@/lib/validation";
 import { dhakaToday } from "@/lib/time";
 import { getSession } from "@/lib/auth/session";
-import { projectStart } from "@/lib/data/reports";
+import { projectStart, reportFiles } from "@/lib/data/reports";
 import type { Json } from "@/types/database";
 
 const refresh = () => revalidatePath("/", "layout");
@@ -27,8 +27,12 @@ export async function saveReport(input: ReportInput): Promise<ActionResult<{ id:
   const supabase = await createClient();
   const payload = {
     project_id: v.project_id, update_text: v.update_text, issues: v.issues || null,
-    next_task_id: v.next_task_id || null, next_task_text: v.next_task_text || null, remarks: v.remarks || null,
-    items: v.items.map((i) => ({ task_id: i.task_id, progress_after: i.progress_after ?? null, status_after: i.status_after ?? null, note: i.note || null })),
+    next_task_id: v.next_task_id || null, next_task_text: v.next_task_text || null,
+    // the free-text remark is the Admin's now (migration 27): sent only by an Admin who set it; otherwise it stays
+    ...(s.isAdmin && v.remarks != null ? { remarks: v.remarks || null } : {}),
+    // hours not tied to a task; absent = keep the saved value
+    ...(v.work_hours !== undefined ? { work_hours: v.work_hours } : {}),
+    items: v.items.map((i) => ({ task_id: i.task_id, progress_after: i.progress_after ?? null, status_after: i.status_after ?? null, note: i.note || null, work_hours: i.work_hours ?? null })),
     remove_task_ids: v.remove_task_ids,
   };
   const { data, error } = await supabase.rpc("save_daily_report", { p: payload as unknown as Json });
@@ -53,18 +57,28 @@ export async function saveDailyRow(input: DailyRowInput): Promise<ActionResult<{
   const s = await getSession();
   if (!s || !s.profile.active) return { ok: false, message: "Sign in again to save." };
   const today = dhakaToday();
-  const item = v.task_id ? { task_id: v.task_id, status_after: v.status, progress_after: v.progress, note: null } : null;
+  // hours go on the row's Main Task when one is chosen, otherwise on the report itself
+  const hours = v.work_hours ?? null;
+  const item = v.task_id ? { task_id: v.task_id, status_after: v.status, progress_after: v.progress, note: null, work_hours: hours } : null;
 
   if (v.report_date > today) return { ok: false, message: "A daily report can't be dated after today." };
-  if (v.user_id === s.userId && v.report_date === today) {
+  const supabase = await createClient();
+  // a saved row keeps going through the Admin path when it belongs to someone else (an Admin may give it to another member)
+  const owner = v.report_id
+    ? (await supabase.from("daily_reports").select("user_id").eq("id", v.report_id).maybeSingle()).data?.user_id ?? null
+    : null;
+  if (v.user_id === s.userId && v.report_date === today && (!v.report_id || owner === s.userId)) {
     return saveReport({
       project_id: v.project_id, update_text: v.update_text, issues: v.issues, next_task_id: null,
-      next_task_text: v.next_task_text, remarks: v.remarks, items: item ? [item] : [], remove_task_ids: v.remove_task_ids,
+      next_task_text: v.next_task_text, work_hours: item ? null : hours, items: item ? [item] : [], remove_task_ids: v.remove_task_ids,
     });
   }
   if (!s.isAdmin) return { ok: false, message: "Only an Admin can add or change a daily report for an earlier date or for another person." };
 
-  const supabase = await createClient();
+  if (v.report_id && owner && owner !== v.user_id) {
+    const { data: member } = await supabase.from("project_members").select("user_id").eq("project_id", v.project_id).eq("user_id", v.user_id).is("removed_at", null).maybeSingle();
+    if (!member) return { ok: false, message: "Choose a current member of this project." };
+  }
   if (!v.report_id) {
     const [{ data: project }, { data: member }] = await Promise.all([
       supabase.from("projects").select("id, start_date, created_at").eq("id", v.project_id).maybeSingle(),
@@ -76,19 +90,57 @@ export async function saveDailyRow(input: DailyRowInput): Promise<ActionResult<{
   }
   const payload = {
     report_id: v.report_id ?? null, user_id: v.user_id, project_id: v.project_id, report_date: v.report_date,
-    update_text: v.update_text, issues: v.issues || null, next_task_text: v.next_task_text || null, remarks: v.remarks || null,
-    item: item ? { task_id: item.task_id, status_after: item.status_after, progress_after: item.progress_after } : null,
+    update_text: v.update_text, issues: v.issues || null, next_task_text: v.next_task_text || null,
+    work_hours: item ? null : hours,
+    item: item ? { task_id: item.task_id, status_after: item.status_after, progress_after: item.progress_after, work_hours: hours } : null,
     remove_task_ids: v.remove_task_ids,
   };
   const { data: id, error } = await supabase.rpc("save_daily_row", { p: payload as unknown as Json });
   if (error) {
     return error.code === "23505"
-      ? { ok: false, message: "A daily report is already saved for this person, project and date. It was not changed; open that row to edit it." }
+      ? { ok: false, message: owner && owner !== v.user_id
+        ? "That person already has a daily report for this project and date, so this one can't be given to them. Nothing was changed."
+        : "A daily report is already saved for this person, project and date. It was not changed; open that row to edit it." }
       : fail(error);
   }
   const report = { id };
   refresh();
-  return { ok: true, message: "Daily update saved", data: { id: report.id } };
+  return { ok: true, message: owner && owner !== v.user_id ? "Daily update saved and reassigned" : "Daily update saved", data: { id: report.id } };
+}
+
+/**
+ * Admin: give a remark on a project day to one member, or edit one (migration 27). Checked here for a clear
+ * message, and again by RLS (Admin only), the remark trigger (current member, not after today; only text and
+ * recipient change) and the column grants (the author is always the signed-in Admin). Every version is kept and
+ * the recipient is notified by the database.
+ */
+export async function saveRemark(input: RemarkInput): Promise<ActionResult<{ id: string }>> {
+  const p = remarkInput.safeParse(input);
+  if (!p.success) return { ok: false, message: firstIssue(p.error) };
+  const v = p.data;
+  const s = await getSession();
+  if (!s || !s.profile.active) return { ok: false, message: "Sign in again to save." };
+  if (!s.isAdmin) return { ok: false, message: "Only an Admin can write remarks." };
+  if (v.report_date > dhakaToday()) return { ok: false, message: "A remark can't be dated after today." };
+  const supabase = await createClient();
+  const { data: member } = await supabase.from("project_members").select("user_id").eq("project_id", v.project_id).eq("user_id", v.recipient_id).is("removed_at", null).maybeSingle();
+  if (!member) return { ok: false, message: "Choose a current member of this project." };
+  const q = v.id
+    ? supabase.from("daily_report_remarks").update({ body: v.body, recipient_id: v.recipient_id }).eq("id", v.id).select("id").maybeSingle()
+    : supabase.from("daily_report_remarks").insert({ project_id: v.project_id, report_date: v.report_date, recipient_id: v.recipient_id, body: v.body }).select("id").single();
+  const { data, error } = await q;
+  if (error) return fail(error);
+  // an edit that changed nothing returns no row (the trigger skips it): report it as saved
+  refresh();
+  return { ok: true, message: v.id ? "Remark updated" : "Remark sent", data: { id: data?.id ?? v.id ?? "" } };
+}
+
+/** The files of one report for the Attachment column's gallery, read with the viewer's own access. */
+export async function loadReportFiles(reportId: string): Promise<ActionResult<Awaited<ReturnType<typeof reportFiles>>>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportId)) return { ok: false, message: "Not found" };
+  const s = await getSession();
+  if (!s || !s.profile.active) return { ok: false, message: "Sign in again." };
+  return { ok: true, data: await reportFiles(reportId) };
 }
 
 /**

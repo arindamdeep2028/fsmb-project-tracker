@@ -56,7 +56,7 @@ export default async function DepartmentDashboard({ searchParams }: { searchPara
       </div>
       <div className="space-y-6">
         <Section title="Projects"><ProjectHealthTable projects={d.projects} /></Section>
-        <Section title="People"><ScoreTable rows={d.people} csvName={`fsmb-department-${d.window.from}-${d.window.to}`} logBase={s.isAdmin ? "/admin/log?person=" : undefined} drill={{ from: d.window.from, to: d.window.to }} /></Section>
+        <Section title="People"><ScoreTable rows={d.people} exportName={`fsmb-department-${d.window.from}-${d.window.to}`} logBase={s.isAdmin ? "/admin/log?person=" : undefined} drill={{ from: d.window.from, to: d.window.to }} /></Section>
       </div>
     </>
   );

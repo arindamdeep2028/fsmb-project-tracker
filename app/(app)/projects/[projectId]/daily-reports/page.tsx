@@ -1,11 +1,11 @@
 import { projectContext } from "@/lib/auth/project-guard";
-import { projectDailyLog, projectStart } from "@/lib/data/reports";
+import { projectDailyLog, projectRemarks, projectStart } from "@/lib/data/reports";
 import { getMembers } from "@/lib/data/projects";
 import { getSettings } from "@/lib/data/admin";
 import { createClient } from "@/lib/supabase/server";
 import { reportOrder, taskCaps } from "@/lib/auth/capabilities";
 import { DailyLogEditor, type RowTask } from "@/components/reports/daily-log-editor";
-import { DailyLogCsv } from "@/components/reports/daily-log-csv";
+import { DailyLogExcel } from "@/components/reports/daily-log-excel";
 import { letterOf, taskLabel } from "@/lib/sheet";
 import { daysAgo, dhakaToday } from "@/lib/time";
 
@@ -16,10 +16,11 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
  * member's updates (RLS) and adds or edits their own row for today in place ("Add Daily Update"); earlier days are
  * read-only. Only an Admin may write any member's row for an earlier day: ?user=&fill=<date> (from an overdue
  * notification) opens that row ready to fill in. Admin, Department Head and Project Manager read newest first;
- * an Engineer reads oldest first, from Day 1. CSV for managers.
+ * an Engineer reads oldest first, from Day 1. Excel for managers. Remarks are the Admin's (Remarks column); a
+ * notification about one opens its day with ?remark=<id>.
  */
 export default async function ProjectReportsPage({ params, searchParams }: {
-  params: Promise<{ projectId: string }>; searchParams: Promise<{ user?: string; from?: string; to?: string; fill?: string }>;
+  params: Promise<{ projectId: string }>; searchParams: Promise<{ user?: string; from?: string; to?: string; fill?: string; remark?: string }>;
 }) {
   const { projectId } = await params;
   const sp = await searchParams;
@@ -39,7 +40,12 @@ export default async function ProjectReportsPage({ params, searchParams }: {
     supabase.from("task_rollup").select("task_id, is_leaf").eq("project_id", projectId),
   ]);
   const who = members.find((m) => m.user_id === sp.user);
-  const rows = await projectDailyLog(project, { from, to, user: who ? { id: who.user_id, name: who.full_name } : null, workdays: settings?.workdays, order });
+  const [rows, remarks] = await Promise.all([
+    projectDailyLog(project, { from, to, user: who ? { id: who.user_id, name: who.full_name } : null, workdays: settings?.workdays, order }),
+    projectRemarks(projectId, from, to),
+  ]);
+  // with a person chosen, only the remarks addressed to them
+  const shownRemarks = who ? remarks.filter((m) => m.recipientId === who.user_id) : remarks;
 
   const isMember = s.memberProjectIds.includes(projectId);
   const current = members.filter((m) => !m.removed_at);
@@ -71,6 +77,8 @@ export default async function ProjectReportsPage({ params, searchParams }: {
     <DailyLogEditor key={fill ? `${fill.userId}-${fill.date}` : "log"} order={order} fill={fill}
       projectId={projectId} rows={rows} today={today} start={start} meId={s.userId} isAdmin={s.isAdmin} maxFiles={settings?.attachment_max_files ?? 10}
       canAdd={(isMember || s.isAdmin) && !project.archived && people.length > 0} people={people} tasks={rowTasks} from={from} query={query}
+      remarks={shownRemarks}
+      remarkContext={{ projectId, isAdmin: s.isAdmin, people: current.map((m) => ({ id: m.user_id, name: m.full_name })), openId: sp.remark && /^[0-9a-f-]{36}$/i.test(sp.remark) ? sp.remark : null }}
       filters={
         <form method="get" className="flex flex-wrap items-end gap-3">
           <label className="text-sm">Assigned To
@@ -83,6 +91,6 @@ export default async function ProjectReportsPage({ params, searchParams }: {
           <button className="h-9 rounded-md border border-line bg-panel px-3 text-sm font-medium hover:border-steel">Apply</button>
         </form>
       }
-      actions={manages ? <DailyLogCsv rows={rows} name={`${project.code}-daily-follow-up-${from}-to-${to}`} /> : null} />
+      actions={manages ? <DailyLogExcel rows={rows} remarks={shownRemarks} name={`${project.code}-daily-reports-${from}-to-${to}`} title={`${project.code} ${project.name}: Daily reports, ${from} to ${to}`} /> : null} />
   );
 }

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/auth/session";
-import { getReport, projectStart } from "@/lib/data/reports";
+import { getReport, projectRemarks, projectStart } from "@/lib/data/reports";
+import { formatHours, totalHours } from "@/lib/hours";
 import { getSettings } from "@/lib/data/admin";
 import { canManageProject } from "@/lib/auth/capabilities";
 import { Badge, PageHeader, Section } from "@/components/ui/misc";
@@ -22,14 +23,17 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const data = await getReport(id);
   if (!data) notFound();
   const { report: r, items, attachments } = data;
-  const settings = await getSettings();
+  const [settings, dayRemarks] = await Promise.all([getSettings(), projectRemarks(r.project_id, r.report_date, r.report_date)]);
+  // the remarks given to this report's person on that day (RLS: only those the viewer may read)
+  const remarks = dayRemarks.filter((m) => m.recipientId === r.user_id);
+  const hours = totalHours([r.work_hours, ...items.map((i) => i.work_hours)]);
   const mine = r.user_id === s.userId;
   const open = !r.locked && r.report_date === dhakaToday();
   const manages = r.project ? canManageProject(s, r.project) : false;
   const canUpload = (mine && open) || s.isAdmin;   // the Storage policy: the author while the report is open, or an Admin
   const canDeleteFiles = (mine && open) || manages;
   const row: DailyRow = {
-    key: r.id, date: r.report_date, reportId: null, userId: r.user_id, locked: r.locked, edit: null, offDay: false, assignedTo: r.author?.full_name ?? "",
+    key: r.id, date: r.report_date, reportId: r.id, userId: r.user_id, hours, fileCount: attachments.length, locked: r.locked, edit: null, offDay: false, assignedTo: r.author?.full_name ?? "",
     dayNo: r.project ? projectDayNumber(projectStart(r.project), r.report_date) : null,
     mainTask: items.map((i) => ({
       ...(i.parent
@@ -56,7 +60,21 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
       <div className="space-y-6">
         <div className="space-y-6">
           <Section title="Daily follow up">
-            <DailyLogTable rows={[row]} />
+            <DailyLogTable rows={[row]} remarks={remarks} />
+          </Section>
+          <Section title="Working hours" aside={<span data-testid="report-total-hours" className="text-sm font-semibold">Total {formatHours(hours)}</span>}>
+            <table className="w-full max-w-xl border-collapse text-sm" data-testid="report-hours">
+              <thead><tr className="bg-[#efeadf]"><th className="border border-ink/20 px-3 py-1.5 text-left">Task</th><th className="w-32 border border-ink/20 px-3 py-1.5">Hours</th></tr></thead>
+              <tbody>
+                {items.map((i) => (
+                  <tr key={i.id}><td className="border border-ink/20 px-3 py-1.5">{taskLabel(i.task_code, i.task_title)}</td><td className="border border-ink/20 px-3 py-1.5 text-center">{formatHours(i.work_hours)}</td></tr>
+                ))}
+                {r.work_hours != null || !items.length ? (
+                  <tr><td className="border border-ink/20 px-3 py-1.5 text-ink-soft">{items.length ? "Other work (no task)" : "Work that day"}</td><td className="border border-ink/20 px-3 py-1.5 text-center">{formatHours(r.work_hours)}</td></tr>
+                ) : null}
+                <tr className="font-semibold"><td className="border border-ink/20 px-3 py-1.5">Total</td><td className="border border-ink/20 px-3 py-1.5 text-center">{formatHours(hours)}</td></tr>
+              </tbody>
+            </table>
           </Section>
         </div>
         <div className="space-y-6">

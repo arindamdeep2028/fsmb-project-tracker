@@ -26,7 +26,7 @@ export default async function AdminLogPage({ searchParams }: { searchParams: Pro
         {sp.person ? <input type="hidden" name="person" value={sp.person} /> : null}
         <button className="h-9 rounded-md border border-line bg-panel px-3 text-sm font-medium hover:border-steel">Apply</button>
       </form>
-      <LogTable rows={rows} csvName="fsmb-log" />
+      <LogTable rows={rows} exportName="fsmb-log" />
     </>
   );
 }

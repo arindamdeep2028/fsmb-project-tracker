@@ -14,7 +14,7 @@ export default async function ProjectLayout({ children, params }: { children: Re
   const manages = canManageProject(s, p);
   const tabs = [
     { href: "", label: "Overview" }, { href: "/tasks", label: "Responsibilities" }, { href: "/daily-reports", label: "Daily reports" },
-    { href: "/members", label: "Members" },
+    { href: "/tasklist", label: "Tasklist" }, { href: "/members", label: "Members" },
     ...(manages ? [{ href: "/report", label: "Report" }, { href: "/log", label: "Log" }, { href: "/settings", label: "Settings" }] : []),
   ];
   return (

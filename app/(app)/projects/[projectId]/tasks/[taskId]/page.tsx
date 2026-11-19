@@ -8,6 +8,7 @@ import { Badge, Meter, Section, Table } from "@/components/ui/misc";
 import { DeadlineChip, RedReasons } from "@/components/tasks/deadline";
 import { CommentThread } from "@/components/tasks/comment-thread";
 import { TaskDetailActions } from "@/components/tasks/task-detail-actions";
+import { PriorityBadge } from "@/components/tasks/cells";
 import { fmt, fmtDay } from "@/lib/time";
 import { taskRowFiles } from "@/lib/data/reports";
 import { TaskFiles } from "@/components/reports/daily-log-table";
@@ -44,7 +45,7 @@ export default async function TaskPage({ params }: { params: Promise<{ projectId
           <h2 className="text-xl font-semibold"><span className="text-ink-soft">{t.code}</span> {t.title}</h2>
           <div className="mt-2 flex flex-wrap gap-2">
             <Badge>{t.status}</Badge>
-            <Badge signal={t.priority === "Important" || t.priority === "High" ? "amber" : "neutral"}>{t.priority}</Badge>
+            <PriorityBadge priority={t.priority} />
             {t.archived ? <Badge signal="done">Archived</Badge> : null}
             {t.contribution_locked ? <Badge signal="done">Share locked</Badge> : null}
           </div>

@@ -274,7 +274,7 @@ try {
   check("REGRESSION: the demoted user's open session loses the manager-only pages at once", r404.status() === 404 || (await pm.locator("main").innerText()).includes("isn't available"), `HTTP ${r404.status()}`);
   await go(pm, "/dashboard/projects");
   check("…and the My Projects dashboard", at(pm) !== "/dashboard/projects", at(pm));
-  const d1 = await abrarApi.from("tasks").update({ priority: "Low" }).eq("id", T_ARIF).select();
+  const d1 = await abrarApi.from("tasks").update({ priority: "Normal" }).eq("id", T_ARIF).select();
   const d2 = await abrarApi.rpc("grant_extension", { p_task: T_ARIF, p_new_deadline: new Date(Date.now() + 20 * 864e5).toISOString(), p_reason: "after demotion" });
   const d3 = await abrarApi.rpc("set_task_deadline", { p_task: T_ARIF, p_due: new Date(Date.now() + 3 * 864e5).toISOString() });
   check("REGRESSION: with the token issued while still a PM, the API refuses manager actions", (Boolean(d1.error) || d1.data.length === 0) && Boolean(d2.error) && Boolean(d3.error), [d1.error?.message ?? `${d1.data?.length} rows`, d2.error?.message, d3.error?.message].join(" | "));

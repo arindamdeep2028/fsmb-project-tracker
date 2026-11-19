@@ -9,12 +9,13 @@ import { deleteTask, setArchived, setProgress, setStatus, submitPlan } from "@/l
 import { deadlineSignal } from "@/lib/labels";
 import { cn, pct } from "@/lib/utils";
 import { useAction } from "@/components/toast";
-import { Badge, Meter } from "@/components/ui/misc";
+import { Meter } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { DeadlineChip, RedReasons } from "./deadline";
 import { MarkDoneButton } from "./mark-done";
 import { TaskDialog, type Assignee } from "./task-dialog";
 import { ExtensionDialog } from "./extension-dialog";
+import { PriorityBadge } from "./cells";
 
 type Props = {
   nodes: TaskNode[];
@@ -79,7 +80,8 @@ function Row({ node: n, parent, caps, meId, basePath, onDialog, collapsed, onTog
   const openSubtasks = n.children.filter((x) => x.status !== "Completed").map((x) => ({ code: x.code, title: x.title }));
   const parentPrompt = parent && parent.status !== "Completed" && (parent.assigned_to === meId || c?.manager)
     && parent.children.every((x) => x.id === n.id || x.status === "Completed") ? { id: parent.id, code: parent.code, title: parent.title } : null;
-  const canComplete = !done && (c?.manager || c?.isAssignee);
+  // Mark Done is a status change: anyone who may change the status (taskCaps.statuses)
+  const canComplete = !done && Boolean(c?.statuses.includes("Completed"));
   const progress = n.is_leaf ? n.progress_pct : n.calculated_progress;
 
   return (
@@ -98,7 +100,7 @@ function Row({ node: n, parent, caps, meId, basePath, onDialog, collapsed, onTog
             </Link>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
               <span>{n.assignee_name ?? "Unassigned"}</span>
-              {n.priority !== "Normal" ? <Badge signal={n.priority === "Important" || n.priority === "High" ? "amber" : "neutral"}>{n.priority}</Badge> : null}
+              {n.priority !== "Normal" ? <PriorityBadge priority={n.priority} /> : null}
               <span>Share {pct(n.effective_weight, 0)}</span>
               {n.contribution_locked ? <span>Share locked</span> : null}
               {!n.plan_submitted_at && !done && n.status === "Not started" ? <span>Plan due</span> : null}
@@ -110,8 +112,9 @@ function Row({ node: n, parent, caps, meId, basePath, onDialog, collapsed, onTog
       </div>
 
       <div>
-        {c && c.statuses.filter((s) => s !== "Completed").length > 0 && !done ? (
-          <select aria-label={`Status of ${n.code}`} value={n.status} disabled={pending}
+        {/* every user who may change the status may also move a Completed task back; Completed itself goes through Mark Done */}
+        {c && c.statuses.filter((s) => s !== "Completed").length > 0 ? (
+          <select aria-label={`Status of ${n.code}`} value={n.status} disabled={pending} title={done ? "Completed: choose a status to reopen it" : undefined}
             onChange={(e) => run(() => setStatus(n.id, e.target.value))}
             className="h-8 w-full rounded-md border border-line bg-panel px-2 text-sm">
             <option>{n.status}</option>

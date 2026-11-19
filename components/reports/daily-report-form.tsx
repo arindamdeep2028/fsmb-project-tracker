@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form";
 import { useToast } from "@/components/toast";
 import { DailyHead, DayCells } from "@/components/reports/daily-log-table";
-import { reportItemChange } from "@/lib/report-items";
+import { reportItemChange, stepChoices, taskSteps, type StepOption } from "@/lib/report-items";
+import { StepNo } from "@/components/projects/project-chooser";
+import { pct } from "@/lib/utils";
 import { SHEET_STATUS, type DayRemark } from "@/lib/sheet";
 import { parseHours } from "@/lib/hours";
 import { RemarksCell } from "@/components/reports/sheet-cells";
@@ -17,8 +19,8 @@ import type { TaskStatus } from "@/lib/auth/capabilities";
 import { PendingFiles, reach, withAdded, type PendingFile } from "@/components/reports/pending-files";
 import { carryToReport, imagesFromPaste } from "@/components/reports/file-uploader";
 
-/** One of my open tasks / subtasks: label "4. Task" (+ "a. Subtask"), and the statuses I may move it to. */
-export type MainTaskOption = { id: string; label: string; sub: string | null; status: TaskStatus; choices: TaskStatus[]; is_leaf: boolean; progress_pct: number | null; done: boolean };
+/** One of my open tasks / subtasks: label "4. Task" (+ "a. Subtask"), the statuses I may move it to, and its task. */
+export type MainTaskOption = StepOption;
 type Existing = {
   update_text: string; issues: string | null; next_task_text: string | null; remarks: string | null;
   work_hours?: number | null;
@@ -74,6 +76,11 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
   const [taskId, setTaskId] = useState(f.getValues("task_id"));
   const [taskChanged, setTaskChanged] = useState(false);
   const task = tasks.find((t) => t.id === taskId);
+  // step 2 (task) and step 3 (its subtask, or the task itself); the entry sent is the step 3 choice
+  const groups = taskSteps(tasks);
+  const [topId, setTopId] = useState(task?.top.id ?? "");
+  const group = groups.find((g) => g.id === topId);
+  const choices = stepChoices(group);
   const taskName = task ? (task.sub ? `${task.label} — ${task.sub}` : task.label) : "";
   const fileCount = pending.length + taskPending.length;
 
@@ -94,6 +101,14 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
     f.setValue("task_id", id);
     f.setValue("status", t?.status ?? "");
     f.setValue("progress", t ? String(t.progress_pct ?? 0) : "");
+  }
+
+  /** Step 2: a different task clears step 3 (or fills it when there is only one choice), so no entry of the
+   *  previous task can be sent by mistake. */
+  function pickTop(id: string) {
+    setTopId(id);
+    const next = stepChoices(groups.find((g) => g.id === id));
+    pickTask(next.length === 1 ? next[0].option.id : "");
   }
 
   async function onSubmit(v: V) {
@@ -132,14 +147,39 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
           <tbody>
             <tr data-testid="task-row" onPaste={pasteIntoRow}>
               <DayCells date={date} dayNo={dayNo} />
-              <td className={`${cell} min-w-72`}>
-                <select aria-label="Main Task" className={box} value={taskId} onChange={(e) => pickTask(e.target.value)}>
-                  <option value="">{tasks.length ? "Choose your task" : "No task assigned to you yet"}</option>
-                  {tasks.map((t) => <option key={t.id} value={t.id}>{t.sub ? `${t.label} — ${t.sub}` : t.label}</option>)}
-                </select>
-                {task?.sub ? <p className="mt-1 text-xs text-ink-soft">Subtask {task.sub}</p> : null}
-                <textarea aria-label="Daily Sub Task" rows={4} className={`${box} mt-1.5`} placeholder={"Work done today\na. …\nb. …"} {...f.register("update_text")} />
-                {f.formState.errors.update_text ? <p className="mt-1 text-xs text-signal-red">{f.formState.errors.update_text.message}</p> : null}
+              <td className={`${cell} min-w-80`}>
+                <div className="space-y-2" data-testid="update-steps">
+                  <label className="block text-xs font-semibold text-ink"><StepNo n={2} />Task
+                    <select aria-label="Task" data-testid="step-task" className={`${box} mt-1 font-normal`} value={topId} onChange={(e) => pickTop(e.target.value)}>
+                      <option value="">{groups.length ? "Choose the task you worked on" : "No task assigned to you yet"}</option>
+                      {groups.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold text-ink"><StepNo n={3} />Subtask
+                    <select aria-label="Subtask" data-testid="step-subtask" className={`${box} mt-1 font-normal disabled:bg-paper disabled:text-ink-faint`}
+                      value={taskId} disabled={!group} onChange={(e) => pickTask(e.target.value)}>
+                      <option value="">{!group ? "Choose the task first" : "Choose the subtask"}</option>
+                      {choices.map((c) => <option key={c.option.id} value={c.option.id}>{c.text}{c.option.done ? " (Completed)" : ""}</option>)}
+                    </select>
+                  </label>
+                  {group ? (
+                    <p data-testid="task-progress" className="text-[11px] text-ink-soft">
+                      Task progress now: <strong className="text-ink">{pct(group.progress)}</strong>
+                      {(group.own && !group.own.is_leaf) || group.subtasks.length ? " (calculated from its subtasks)" : ""}
+                    </p>
+                  ) : null}
+                  <label className="block text-xs font-semibold text-ink"><StepNo n={4} />Work done today
+                    <textarea aria-label="Daily Sub Task" rows={4} className={`${box} mt-1 font-normal`} placeholder={"a. …\nb. …"} {...f.register("update_text")} />
+                  </label>
+                  {f.formState.errors.update_text ? <p className="text-xs text-signal-red">{f.formState.errors.update_text.message}</p> : null}
+                  {task && !task.done && task.is_leaf ? (
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-ink">Completion
+                      <input type="number" min={0} max={100} step={5} aria-label="Progress %" data-testid="step-progress"
+                        className="h-8 w-20 rounded border border-line bg-panel px-1.5 text-right text-sm font-normal" {...f.register("progress")} />%
+                      <span className="font-normal text-ink-soft">of {task.sub ? "this subtask" : "this task"}</span>
+                    </label>
+                  ) : task && !task.done ? <p className="text-xs text-ink-soft">This task&apos;s progress is calculated from its subtasks; choose a subtask to enter a percentage.</p> : null}
+                </div>
                 {task || taskPending.length ? (
                   <>
                     <PendingFiles variant="task" task={taskName} files={taskPending} onChange={setTaskPending} maxFiles={maxFiles}
@@ -162,17 +202,13 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
                     <select aria-label="Status" className={box} {...f.register("status")}>
                       {[task.status, ...task.choices.filter((s) => s !== task.status)].map((s) => <option key={s} value={s}>{SHEET_STATUS[s] ?? s}</option>)}
                     </select>
-                    {task.is_leaf ? (
-                      <label className="mt-1.5 flex items-center gap-1 text-xs text-ink-soft">Progress
-                        <input type="number" min={0} max={100} step={5} aria-label="Progress %" className="h-7 w-16 rounded border border-line bg-panel px-1 text-right text-sm" {...f.register("progress")} />%
-                      </label>
-                    ) : <p className="mt-1 text-xs text-ink-soft">Progress from subtasks</p>}
+                    {task.is_leaf ? null : <p className="mt-1 text-xs text-ink-soft">Progress from subtasks</p>}
                   </>
                 ) : (
                   // a status belongs to the Main Task: the field is shown from the start and opens once a task is chosen
                   <>
                     <select aria-label="Status" className={box} disabled value=""><option value="">{tasks.length ? "Choose task" : "No open task"}</option></select>
-                    <p data-testid="status-hint" className="mt-1 text-xs text-ink-soft">{tasks.length ? "Pick your Main Task first to set its status." : "No open task is assigned to you here."}</p>
+                    <p data-testid="status-hint" className="mt-1 text-xs text-ink-soft">{tasks.length ? "Choose the task and subtask first to set its status." : "No open task is assigned to you here."}</p>
                   </>
                 )}
               </td>
@@ -194,7 +230,7 @@ export function DailyReportForm({ projectId, date, dayNo, me, tasks, existing, m
         </section>
       )}
       <FormMessage result={result && !result.ok ? result : null} />
-      <Button type="submit" pending={f.formState.isSubmitting}>{`${existing ? "Save today's update" : "Submit daily update"}${fileCount ? ` with ${fileCount === 1 ? "1 file" : `${fileCount} files`}` : ""}`}</Button>
+      <Button type="submit" pending={f.formState.isSubmitting} data-testid="step-submit"><StepNo n={5} inverse />{`${existing ? "Save today's update" : "Submit daily update"}${fileCount ? ` with ${fileCount === 1 ? "1 file" : `${fileCount} files`}` : ""}`}</Button>
     </form>
   );
 }

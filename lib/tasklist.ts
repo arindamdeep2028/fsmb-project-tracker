@@ -11,6 +11,8 @@ export type TasklistTask = {
   id: string; code: string; title: string; parent_id: string | null; status: string; priority: string;
   assigned_to: string; assignee_name: string | null; created_by: string; contribution_locked: boolean;
   is_leaf: boolean; children: TasklistTask[];
+  /** the task's deadline (effective_due_at): the same value as the End Date of Responsibilities */
+  due?: string | null;
 };
 
 /** A row added on the Tasklist itself (migration 28): a sheet row, not a task (no code, owner or deadline). */
@@ -37,7 +39,7 @@ export const categoryLabel = (c: string) => `${c} Task`;
 export const CATEGORY_TONE: Record<string, [string, string]> = { General: ["#e7ece8", "#34483c"], Urgent: ["#b3261e", "#ffffff"] };
 
 export type TasklistRow =
-  | { kind: "phase"; key: string; label: string; taskId: string | null; count: number }
+  | { kind: "phase"; key: string; label: string; taskId: string | null; count: number; due?: string | null }
   | { kind: "task"; key: string; no: string; task: TasklistTask }
   | { kind: "row"; key: string; row: SheetRow };
 
@@ -62,7 +64,7 @@ export function tasklistRows(roots: TasklistTask[], sheet: SheetRow[] = []): Tas
     if (t.children.length) {
       open = false;
       const extra = underPhase(t.id);
-      out.push({ kind: "phase", key: `phase-${t.id}`, label: t.title, taskId: t.id, count: t.children.length + extra.length });
+      out.push({ kind: "phase", key: `phase-${t.id}`, label: t.title, taskId: t.id, count: t.children.length + extra.length, due: t.due ?? null });
       const kids = [...t.children].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
       for (const c of kids) out.push({ kind: "task", key: c.id, no: `${slOf(t.code)}${letterOf(c.code)}`, task: c });
       out.push(...extra.map(asRow));

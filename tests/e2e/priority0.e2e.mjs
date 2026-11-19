@@ -135,7 +135,9 @@ try {
   console.log("--- Fix 1: a report keeps its task entry ---");
   const araf = await open(); await signIn(araf, "araf");
   await go(araf, `/daily-reports/new?project=${P02}`);
-  await araf.getByLabel("Main Task").selectOption(T_ARAF);
+  // steps 2 and 3 of the daily update: the task, then its subtask (here the task itself: it has no subtasks)
+  await araf.getByLabel("Task", { exact: true }).selectOption(T_ARAF);
+  await araf.getByLabel("Subtask", { exact: true }).selectOption(T_ARAF);
   await araf.getByLabel("Daily Sub Task").fill("a. Accuracy run finished");
   await araf.getByLabel("Status").selectOption("Completed");
   await araf.getByRole("button", { name: "Submit daily update" }).click();
@@ -144,7 +146,7 @@ try {
   const taskStatus = async () => (await q("select status from tasks where id = $1", [T_ARAF]))[0].status;
   check("The engineer submits a report with a task and completes that task", rep?.items === 1 && (await taskStatus()) === "Completed", `items ${rep?.items}, task ${await taskStatus()}`);
   await go(araf, `/daily-reports/new?project=${P02}`);
-  check("Reopened: the completed task is still shown as the report's Main Task", (await araf.getByLabel("Main Task").inputValue()) === T_ARAF && (await araf.locator("form").innerText()).includes("its entry stays in the update"));
+  check("Reopened: the completed task is still shown as the report's Main Task", (await araf.getByLabel("Subtask", { exact: true }).inputValue()) === T_ARAF && (await araf.locator("form").innerText()).includes("its entry stays in the update"));
   await araf.getByLabel("Daily Sub Task").fill("a. Accuracy run finished (typo fixed)");
   await araf.getByRole("button", { name: "Save today's update" }).click();
   await araf.waitForURL(/\/daily-reports\/[0-9a-f-]{36}$/); await araf.waitForLoadState("networkidle");
@@ -169,7 +171,7 @@ try {
   check("Admin path: editing the row keeps the task entry", rep.items === 1 && rep.statuses === "Completed", `items ${rep.items}`);
   // explicit removal is still possible: the author clears the Main Task
   await go(araf, `/daily-reports/new?project=${P02}`);
-  await araf.getByLabel("Main Task").selectOption("");
+  await araf.getByLabel("Task", { exact: true }).selectOption("");
   await araf.getByRole("button", { name: "Save today's update" }).click();
   await araf.waitForURL(/\/daily-reports\/[0-9a-f-]{36}$/);
   rep = await report("araf", P02);

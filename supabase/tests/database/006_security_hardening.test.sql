@@ -209,7 +209,7 @@ select ok((select count(*)::int from public.notifications) = (select n from t_be
 select pg_temp.act_as('11111111-0000-0000-0000-000000000002');
 select ok(app.heads_department('d0000000-0000-0000-0000-000000000005') and app.manages_project('aaaaaaaa-0000-0000-0000-000000000001'),
           'Before: the Department Head heads R&D and manages its project');
-select lives_ok($$update public.tasks set priority = 'High' where id = 'bbbbbbbb-0000-0000-0000-000000000103'$$, 'Before: they can edit a colleague''s task in it');
+select lives_ok($$update public.tasks set priority = 'Important' where id = 'bbbbbbbb-0000-0000-0000-000000000103'$$, 'Before: they can edit a colleague''s task in it');
 select pg_temp.act_as('11111111-0000-0000-0000-000000000001');
 select lives_ok($$update public.profiles set role = 'engineer' where id = '11111111-0000-0000-0000-000000000002'$$, 'An Admin demotes the Department Head to engineer');
 select pg_temp.sys();
@@ -229,7 +229,7 @@ select pg_temp.act_as('11111111-0000-0000-0000-000000000002');
 select ok(not app.heads_department('d0000000-0000-0000-0000-000000000005') and not app.manages_project('aaaaaaaa-0000-0000-0000-000000000001')
           and not app.is_project_pm('aaaaaaaa-0000-0000-0000-000000000001'),
           'REGRESSION: with stale headship and PM rows still present, a demoted user manages nothing');
-select throws_ok($$update public.tasks set priority = 'Low' where id = 'bbbbbbbb-0000-0000-0000-000000000103'$$, '42501', null,
+select throws_ok($$update public.tasks set priority = 'Normal' where id = 'bbbbbbbb-0000-0000-0000-000000000103'$$, '42501', null,
           'REGRESSION: they can no longer edit a colleague''s task');
 select throws_ok($$select public.grant_extension('bbbbbbbb-0000-0000-0000-000000000103', now() + interval '9 days', 'self-service')$$, '42501', null, 'nor grant an extension');
 select throws_ok($$select * from public.performance_summary(null, null, 'd0000000-0000-0000-0000-000000000005')$$, '42501', null, 'nor read the department''s performance');

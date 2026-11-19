@@ -108,6 +108,21 @@ export async function updateTasklistTask(input: { task_id: string; project_id?: 
   return { ok: true, message: "Saved", data: { at: savedAt() } };
 }
 
+/**
+ * The Deadline of an existing task, from the Tasklist: any member of the project (tasklist_set_deadline, migration
+ * 32). The same stored deadline as End Date in Responsibilities: the office closing time of that Dhaka day.
+ */
+export async function setTasklistDeadline(input: { task_id: string; day: string; project_id?: string }): Promise<ActionResult> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.day)) return { ok: false, message: "Choose a date" };
+  if (!/^[0-9a-f-]{36}$/i.test(input.task_id)) return { ok: false, message: "Not found" };
+  if (!(await signedIn())) return { ok: false, message: "Sign in again to save." };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("tasklist_set_deadline", { p_task: input.task_id, p_day: input.day });
+  if (error) return tasklistFail(error);
+  refresh(input.project_id);
+  return { ok: true, message: "Deadline saved", data: { at: savedAt() } };
+}
+
 /** A Tasklist row's cells (name, status, priority, comment, phase). Any member of the project (RLS on tasklist_rows). */
 export async function updateTasklistRow(input: { row_id: string; project_id?: string; patch: TasklistRowPatch }): Promise<ActionResult> {
   const p = tasklistRowPatch.safeParse(input.patch);

@@ -76,8 +76,9 @@ export async function getReport(id: string) {
 export async function getReportFormData(userId: string, projectId?: string) {
   const supabase = await createClient();
   const { data: memberships } = await supabase.from("project_members")
-    .select("project:projects(id, code, name, archived, department_id, start_date, created_at)").eq("user_id", userId).is("removed_at", null);
-  const projects = (memberships ?? []).map((m) => m.project).filter((p): p is NonNullable<typeof p> => Boolean(p && !p.archived))
+    .select("project:projects(id, code, name, archived, status, department_id, start_date, created_at)").eq("user_id", userId).is("removed_at", null);
+  // only running projects (status Active) are offered for a daily update
+  const projects = (memberships ?? []).map((m) => m.project).filter((p): p is NonNullable<typeof p> => Boolean(p && !p.archived && p.status === "Active"))
     .sort((a, b) => a.code.localeCompare(b.code));
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
   if (!project) return { projects, project: null, tasks: [], existing: null };
@@ -86,9 +87,11 @@ export async function getReportFormData(userId: string, projectId?: string) {
       .eq("project_id", project.id).eq("assigned_to", userId).eq("archived", false).order("code"),
     supabase.from("daily_reports").select("*, daily_report_items(*), daily_report_attachments(*)")
       .eq("user_id", userId).eq("project_id", project.id).eq("report_date", dhakaToday()).maybeSingle(),
-    supabase.from("task_rollup").select("task_id, is_leaf").eq("project_id", project.id),
+    supabase.from("task_rollup").select("task_id, is_leaf, calculated_progress").eq("project_id", project.id),
   ]);
   const leaf = new Map((leafRows.data ?? []).map((r) => [r.task_id, r.is_leaf]));
+  // a task's progress as Responsibilities shows it: its own for a leaf, the weighted roll-up of its subtasks otherwise
+  const calc = new Map((leafRows.data ?? []).map((r) => [r.task_id, r.calculated_progress]));
   const listed = new Set((existing.data?.daily_report_items ?? []).map((i) => i.task_id));
   const mine = (tasks.data ?? []).filter((t) => t.status !== "Completed" || listed.has(t.id));
   const parentIds = [...new Set(mine.map((t) => t.parent_id).filter((x): x is string => Boolean(x)))];
@@ -98,7 +101,13 @@ export async function getReportFormData(userId: string, projectId?: string) {
   const parent = new Map((parents ?? []).map((p) => [p.id, p]));
   return {
     projects, project,
-    tasks: mine.map((t) => ({ ...t, is_leaf: leaf.get(t.id) ?? true, parent: t.parent_id ? parent.get(t.parent_id) ?? null : null })),
+    tasks: mine.map((t) => {
+      const p = t.parent_id ? parent.get(t.parent_id) ?? null : null;
+      return {
+        ...t, is_leaf: leaf.get(t.id) ?? true, calculated_progress: calc.get(t.id) ?? t.progress_pct,
+        parent: p ? { ...p, calculated_progress: calc.get(p.id) ?? null } : null,
+      };
+    }),
     existing: existing.data ?? null,
   };
 }

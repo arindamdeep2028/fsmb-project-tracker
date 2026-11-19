@@ -7,7 +7,8 @@ const optText = (max: number) => z.string().max(max).optional().transform((v) =>
 const patchText = (max: number) => z.string().max(max).optional().transform((v) => (v === undefined ? undefined : v.trim() ? v.trim() : null));
 
 export const taskStatus = z.enum(["Not started", "Plan submitted", "In progress", "Blocked", "Completed"]);
-export const priority = z.enum(["Important", "High", "Normal", "Low"]);
+/** Normal / Important / Urgent (the earlier High and Low were moved by migration 31 and are refused by the database). */
+export const priority = z.enum(["Normal", "Important", "Urgent"]);
 
 export const taskCreate = z.object({
   project_id: id,
@@ -34,6 +35,16 @@ export const taskPatch = z.object({
   status: taskStatus.optional(),
 });
 export type TaskPatch = z.input<typeof taskPatch>;
+
+/** A Responsibilities cell of an existing task (member_update_task, migration 32): no End Date here. */
+export const cellPatch = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  description: patchText(5000),
+  assigned_to: id.optional(),
+  priority: priority.optional(),
+  progress_pct: z.number().min(0).max(100).optional(),
+}).strict();
+export type CellPatch = z.input<typeof cellPatch>;
 
 /** Working hours (migration 27): more than 0, at most 24, two decimals; null = none recorded. */
 export const workHours = z.number().gt(0, "Working hours must be more than 0").max(24, "Working hours can't be more than 24")

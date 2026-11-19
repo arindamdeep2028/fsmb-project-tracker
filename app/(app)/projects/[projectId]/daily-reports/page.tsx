@@ -3,7 +3,7 @@ import { projectDailyLog, projectRemarks, projectStart } from "@/lib/data/report
 import { getMembers } from "@/lib/data/projects";
 import { getSettings } from "@/lib/data/admin";
 import { createClient } from "@/lib/supabase/server";
-import { reportOrder, taskCaps } from "@/lib/auth/capabilities";
+import { reportOrder, reportStatuses } from "@/lib/auth/capabilities";
 import { DailyLogEditor, type RowTask } from "@/components/reports/daily-log-editor";
 import { DailyLogExcel } from "@/components/reports/daily-log-excel";
 import { letterOf, taskLabel } from "@/lib/sheet";
@@ -65,7 +65,7 @@ export default async function ProjectReportsPage({ params, searchParams }: {
         id: t.id, assigned_to: t.assigned_to, status: t.status, is_leaf: isLeaf, progress_pct: t.progress_pct, done: t.status === "Completed",
         label: parent ? taskLabel(parent.code, parent.title) : taskLabel(t.code, t.title),
         sub: parent ? `${letterOf(t.code)}. ${t.title}` : null,
-        choices: taskCaps(s, t, manages, isLeaf).statuses,
+        choices: reportStatuses(s, t, manages),
       };
     });
   const query = new URLSearchParams({ ...(who ? { user: who.user_id } : {}), from, to }).toString();

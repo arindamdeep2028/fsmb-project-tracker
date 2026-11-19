@@ -5,14 +5,15 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Download, ExternalLink, Loader2, Plus, Trash2, X } from "lucide-react";
 import {
   addTaskAssignee, addTasklistRowAssignee, addTasklistRows, removeTaskAssignee, removeTasklistRow, removeTasklistRowAssignee,
-  saveTasklistCategory, saveTasklistComment, updateTasklistRow, updateTasklistTask,
+  saveTasklistCategory, saveTasklistComment, setTasklistDeadline, updateTasklistRow, updateTasklistTask,
 } from "@/lib/actions/tasklist";
-import { PRIORITY_TONE, STATUS_TONE } from "@/lib/sheet";
+import { STATUS_TONE, dhakaDateOf, sheetDay } from "@/lib/sheet";
+import { caretToStart, cellKeyAction } from "@/lib/sheet-keys";
+import { DateCell, PriorityBadge, PrioritySelect, onSheetKeyDownCapture } from "@/components/tasks/cells";
 import {
   CATEGORIES, CATEGORY_TONE, TASKLIST_STATUSES, categoryLabel, personTone, tasklistStatus,
   type Category, type SheetRow, type TasklistRow, type TasklistTask,
 } from "@/lib/tasklist";
-import { PRIORITIES } from "@/lib/labels";
 import { downloadXlsx } from "@/lib/xlsx";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast";
@@ -24,11 +25,24 @@ type Status = NonNullable<TasklistTaskPatch["status"]>;
 /** Run a save; `show`: values to show at once, by key, until page data loaded after the save arrives. */
 type Save = (fn: () => Promise<ActionResult>, show?: Record<string, unknown>) => Promise<boolean>;
 
-const WIDTHS = [440, 240, 140, 240, 120];
-const HEAD = ["Task", "Assigned Person", "Status", "Comments", "Priority"];
+/**
+ * One layout for every project's Tasklist (the same columns, widths, row height, wrapping and alignment whatever
+ * the project): Task | Assigned Person | Status | Deadline | Comments | Priority.
+ */
+const WIDTHS = [420, 230, 130, 124, 230, 120];
+/**
+ * Every body row has the height of a task row of the reference project (002 R1 measurements: 41px), and the
+ * Task cell has the same three slots in every row — number, name, category + icon — so names, categories and
+ * icons line up down the column whether a row is a task, an added row or a row without an icon.
+ */
+const ROW = "h-[41px]";
+const NO_SLOT = "w-7 shrink-0 pt-1 text-right text-[13px] font-semibold text-ink-soft";
+const ICON_SLOT = "flex w-4 shrink-0 justify-center pt-1";
+const HEAD = ["Task", "Assigned Person", "Status", "Deadline", "Comments", "Priority"];
+const COLS = HEAD.length;
 /** The Excel file adds a Category column after Task. */
-const EXPORT_HEAD = ["Task", "Category", "Assigned Person", "Status", "Comments", "Priority"];
-const EXPORT_WIDTHS = [440, 110, 240, 140, 240, 120];
+const EXPORT_HEAD = ["Task", "Category", "Assigned Person", "Status", "Deadline", "Comments", "Priority"];
+const EXPORT_WIDTHS = [420, 110, 230, 130, 110, 230, 120];
 const COUNTS = ["1", "5", "10", "20"];
 const MAX_ADD = 50;
 
@@ -76,8 +90,11 @@ function CellText({ value, label, placeholder, maxLength, onSave, autoFocus, req
       onBlur={() => { setFocused(false); void commit(); }}
       onChange={(e) => { setDraft(e.target.value); setBad(false); }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); }
-        if (e.key === "Escape") { setDraft(value); setBad(false); requestAnimationFrame(() => ref.current?.blur()); }
+        const action = cellKeyAction(e);
+        // Ctrl+Enter: caret to the start of the first line (no line break, no save, nothing submitted)
+        if (action === "caret-start") { e.preventDefault(); e.stopPropagation(); caretToStart(e.currentTarget); return; }
+        if (action === "commit-down") { e.preventDefault(); e.currentTarget.blur(); }
+        if (action === "cancel") { setDraft(value); setBad(false); requestAnimationFrame(() => ref.current?.blur()); }
       }}
       className={`block min-h-7 w-full resize-none rounded border bg-transparent px-1.5 py-1 text-[13px] leading-snug [field-sizing:content]
         placeholder:italic placeholder:text-ink-faint hover:border-line focus:border-steel focus:bg-panel focus:outline-none
@@ -111,17 +128,7 @@ function CategorySelect({ value, label, onChange }: { value: Category; label: st
 
 function CategoryPill({ value }: { value: Category }) {
   const [bg, fg] = CATEGORY_TONE[value] ?? CATEGORY_TONE.General;
-  return <span className="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ background: bg, color: fg }}>{categoryLabel(value)}</span>;
-}
-
-function PrioritySelect({ value, label, onChange }: { value: string; label: string; onChange: (v: (typeof PRIORITIES)[number]) => void }) {
-  const [bg, fg] = PRIORITY_TONE[value] ?? ["#e9efe9", "#26332b"];
-  return (
-    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value as (typeof PRIORITIES)[number])}
-      className="h-7 w-full rounded-md border-0 px-1 text-center text-xs font-semibold" style={{ background: bg, color: fg }}>
-      {PRIORITIES.map((x) => <option key={x} value={x} style={{ background: "#fff", color: "#26332b" }}>{x}</option>)}
-    </select>
-  );
+  return <span className="mt-0.5 w-[6.5rem] shrink-0 rounded px-1.5 py-0.5 text-center text-[11px] font-semibold" style={{ background: bg, color: fg }}>{categoryLabel(value)}</span>;
 }
 
 /** Assigned Person chips with add/remove. `owner`: a task's owner (from Responsibilities), shown first, not removable here. */
@@ -182,9 +189,11 @@ const STALE_RETRIES = 3;
  * and page data whose load started before the latest save (a refresh still on its way) is not shown; a fresh load is
  * asked for instead.
  */
-export function Tasklist({ projectId, projectName, data, people, canEdit, archived, canExport }: {
+export function Tasklist({ projectId, projectName, data, people, canEdit, archived, canExport, canDeadline = false }: {
   projectId: string; projectName: string; data: TasklistData; people: Person[];
   canEdit: boolean; archived: boolean; canExport: boolean;
+  /** the viewer may change task deadlines: every member of the project and its managers (migration 32) */
+  canDeadline?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -278,19 +287,19 @@ export function Tasklist({ projectId, projectName, data, people, canEdit, archiv
       const out: (string | null)[][] = [];
       const heads: number[] = [];
       for (const r of rows) {
-        if (r.kind === "phase") { heads.push(out.length); out.push([r.label, null, null, null, null, null]); continue; }
+        if (r.kind === "phase") { heads.push(out.length); out.push([r.label, null, null, null, sheetDay(r.due) || null, null, null]); continue; }
         if (r.kind === "row") {
           const x = r.row;
-          out.push([x.title || "-", categoryLabel(x.category), people_(x.id).map((p) => p.name).join(", "), tasklistStatus(x.status), x.comment || "-", x.priority]);
+          out.push([x.title || "-", categoryLabel(x.category), people_(x.id).map((p) => p.name).join(", "), tasklistStatus(x.status), "-", x.comment || "-", x.priority]);
           continue;
         }
         const t = r.task;
         const names = [t.assignee_name ?? "", ...people_(t.id).map((p) => p.name)].filter(Boolean).join(", ");
-        out.push([`${r.no}. ${t.title}`, categoryLabel(categoryOf(t.id)), names, tasklistStatus(t.status), commentOf(t.id) || "-", t.priority]);
+        out.push([`${r.no}. ${t.title}`, categoryLabel(categoryOf(t.id)), names, tasklistStatus(t.status), sheetDay(t.due) || "-", commentOf(t.id) || "-", t.priority]);
       }
       await downloadXlsx(`${projectName.replace(/[^\w-]+/g, "-")}-tasklist`, [{
         name: "Tasklist", title: projectName,
-        columns: EXPORT_HEAD.map((header, i) => ({ header, width: EXPORT_WIDTHS[i], kind: i === 3 ? "status" : i === 5 ? "priority" : "text", align: i === 1 || i === 3 || i === 5 ? "center" : "left" })),
+        columns: EXPORT_HEAD.map((header, i) => ({ header, width: EXPORT_WIDTHS[i], kind: i === 3 ? "status" : i === 6 ? "priority" : "text", align: i === 1 || i === 3 || i === 4 || i === 6 ? "center" : "left" })),
         rows: out, headerFill: "#34483c",
         rowStyle: (i) => (heads.includes(i) ? { fill: "#dfe8e0", color: "#26332b", bold: true } : undefined),
       }]);
@@ -350,29 +359,38 @@ export function Tasklist({ projectId, projectName, data, people, canEdit, archiv
           {canExport ? <Button variant="secondary" size="sm" onClick={exportExcel} pending={exporting}><Download size={16} className="mr-1" />Export Excel</Button> : null}
         </div>
       </div>
-      <div className="max-h-[calc(100vh-13rem)] overflow-auto rounded-lg border border-line bg-panel">
-        <table className="w-full min-w-[1180px] table-fixed border-collapse text-sm" data-testid="tasklist">
+      <div className="max-h-[calc(100vh-13rem)] overflow-auto rounded-lg border border-line bg-panel" onKeyDownCapture={onSheetKeyDownCapture}>
+        <table className="w-full min-w-[1254px] table-fixed border-collapse text-sm" data-testid="tasklist" data-sheet="tasklist">
           <colgroup>{WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
           <thead className="sticky top-0 z-10">
             <tr className="bg-steel text-white">{HEAD.map((h) => <th key={h} className="border border-steel-dark px-2.5 py-2 text-center font-semibold">{h}</th>)}</tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-8 text-center text-ink-soft">{canEdit ? "No tasks yet. Use Add rows above to start the list." : "No tasks yet."}</td></tr>
+              <tr><td colSpan={COLS} className="px-3 py-8 text-center text-ink-soft">{canEdit ? "No tasks yet. Use Add rows above to start the list." : "No tasks yet."}</td></tr>
             ) : rows.map((r) => {
               if (r.kind === "phase") {
                 return (
-                  <tr key={r.key} data-testid="tasklist-phase" data-phase={r.taskId ?? ""} className="bg-[#dfe8e0]">
-                    <td colSpan={5} className="border border-line px-2.5 py-1.5 font-semibold text-ink">
+                  <tr key={r.key} data-testid="tasklist-phase" data-phase={r.taskId ?? ""} className={`${ROW} bg-[#dfe8e0]`}>
+                    <td colSpan={3} className="border border-line px-2.5 py-1.5 font-semibold text-ink">
                       <div className="flex items-center gap-2">
                         <span>{r.label}</span><span className="text-xs font-normal text-ink-soft">{r.count} {r.count === 1 ? "task" : "tasks"}</span>
-                        {canEdit ? (
-                          <button type="button" data-testid="phase-add-row" disabled={adding} onClick={() => void addRows(1, r.taskId, "General")}
-                            className="ml-auto inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-semibold text-steel hover:bg-white/60">
-                            <Plus size={13} />Add row
-                          </button>
-                        ) : null}
                       </div>
+                    </td>
+                    {/* the phase is a task too: its deadline sits in the Deadline column */}
+                    <td className="border border-line px-2 py-1 text-center text-[13px] font-semibold text-ink" data-testid="phase-deadline">
+                      {canDeadline && r.taskId ? (
+                        <DateCell value={dhakaDateOf(r.due)} label={`Deadline of ${r.label}`} col="phase-deadline"
+                          onSave={async (d) => ({ ok: await save(() => setTasklistDeadline({ task_id: r.taskId!, day: d, project_id: projectId })) })} />
+                      ) : sheetDay(r.due)}
+                    </td>
+                    <td colSpan={COLS - 4} className="border border-line px-2.5 py-1.5 text-right">
+                      {canEdit ? (
+                        <button type="button" data-testid="phase-add-row" disabled={adding} onClick={() => void addRows(1, r.taskId, "General")}
+                          className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-semibold text-steel hover:bg-white/60">
+                          <Plus size={13} />Add row
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -386,7 +404,7 @@ export function Tasklist({ projectId, projectName, data, people, canEdit, archiv
               }
               const t = r.task;
               return <TaskLine key={r.key} no={r.no} task={t} projectId={projectId} people={people} extra={people_(t.id)}
-                comment={commentOf(t.id)} category={categoryOf(t.id)} canEdit={canEdit} save={save} cell={cell}
+                comment={commentOf(t.id)} category={categoryOf(t.id)} canEdit={canEdit} canDeadline={canDeadline} save={save} cell={cell}
                 ops={peopleOps(t.id, (u) => addTaskAssignee({ task_id: t.id, user_id: u, project_id: projectId }),
                   (u) => removeTaskAssignee({ task_id: t.id, user_id: u, project_id: projectId }))} />;
             })}
@@ -400,36 +418,48 @@ export function Tasklist({ projectId, projectName, data, people, canEdit, archiv
 type PeopleOps = { onAdd: (userId: string) => void; onRemove: (userId: string) => void };
 
 /** A real task of the project: name, people, status, comment and priority; its phase is its place in the task tree. */
-function TaskLine({ no, task: t, projectId, people, extra, comment, category, canEdit, save, cell, ops }: {
+function TaskLine({ no, task: t, projectId, people, extra, comment, category, canEdit, canDeadline, save, cell, ops }: {
   no: string; task: TasklistTask; projectId: string; people: Person[]; extra: Person[]; comment: string; category: Category;
-  canEdit: boolean; save: Save; cell: string; ops: PeopleOps;
+  canEdit: boolean; canDeadline: boolean; save: Save; cell: string; ops: PeopleOps;
 }) {
+  const editCells = canEdit;
+  const done = t.status === "Completed";
+  const overdue = !done && Boolean(t.due) && new Date(t.due!) < new Date();
   const owner: Person = { id: t.assigned_to, name: t.assignee_name ?? "Unassigned" };
   const patch = (p: TasklistTaskPatch) => save(() => updateTasklistTask({ task_id: t.id, project_id: projectId, patch: p }),
     Object.fromEntries(Object.entries(p).map(([k, v]) => [`t:${t.id}:${k}`, v])));
   return (
-    <tr data-testid="tasklist-row" data-task={t.id} className="hover:bg-paper/60">
+    <tr data-testid="tasklist-row" data-task={t.id} className={`${ROW} hover:bg-paper/60`}>
       <td className={cell}>
         <div className="flex items-start gap-1">
-          <span className="shrink-0 pt-1 text-[13px] font-semibold text-ink-soft">{no}.</span>
-          {canEdit ? (
+          <span className={NO_SLOT} data-testid="row-no">{no}.</span>
+          {editCells ? (
             <CellText value={t.title} label={`Name of ${t.code}`} maxLength={300} required testId="task-title"
               onSave={(v) => patch({ title: v })} />
-          ) : <span className="min-w-0 flex-1 pt-1 text-[13px]">{t.title}</span>}
-          {canEdit ? (
+          ) : <span className="min-w-0 flex-1 px-1.5 pt-1 text-[13px]" data-testid="task-title-text">{t.title}</span>}
+          {editCells ? (
             <CategorySelect value={category} label={`Category of ${t.title}`}
               onChange={(v) => void save(() => saveTasklistCategory({ task_id: t.id, category: v, project_id: projectId }), { [`g:${t.id}`]: v })} />
           ) : <CategoryPill value={category} />}
-          <Link href={`/projects/${projectId}/tasks/${t.id}`} title={`Open ${t.code}`} aria-label={`Open ${t.code}`}
-            className="shrink-0 pt-1 text-ink-faint hover:text-steel"><ExternalLink size={13} /></Link>
+          <span className={ICON_SLOT}>
+            <Link href={`/projects/${projectId}/tasks/${t.id}`} title={`Open ${t.code}`} aria-label={`Open ${t.code}`}
+              className="text-ink-faint hover:text-steel"><ExternalLink size={13} /></Link>
+          </span>
         </div>
       </td>
       <td className={cell}>
-        <PeopleCell name={t.title} owner={owner} extra={extra} people={people} editable={canEdit} onAdd={ops.onAdd} onRemove={ops.onRemove} />
+        <PeopleCell name={t.title} owner={owner} extra={extra} people={people} editable={editCells} onAdd={ops.onAdd} onRemove={ops.onRemove} />
       </td>
       <td className={`${cell} text-center`}>
         {canEdit ? <StatusSelect value={t.status} label={`Status of ${t.title}`} onChange={(v) => void patch({ status: v as Status })} />
           : <Pill tone={STATUS_TONE[t.status]}>{tasklistStatus(t.status)}</Pill>}
+      </td>
+      {/* Deadline: the task's one stored deadline, the same value as End Date in Responsibilities */}
+      <td className={`${cell} text-center`} data-testid="tasklist-deadline">
+        {canDeadline && !done ? (
+          <DateCell value={dhakaDateOf(t.due)} label={`Deadline of ${t.title}`} col="deadline" overdue={overdue}
+            onSave={async (d) => ({ ok: await save(() => setTasklistDeadline({ task_id: t.id, day: d, project_id: projectId })) })} />
+        ) : <span className={`text-[13px] font-medium ${overdue ? "text-signal-red" : ""}`} title={overdue ? "Past the deadline" : undefined}>{sheetDay(t.due) || "-"}</span>}
       </td>
       <td className={cell}>
         {canEdit ? (
@@ -438,8 +468,8 @@ function TaskLine({ no, task: t, projectId, people, extra, comment, category, ca
         ) : <span className="text-[13px]">{comment || "-"}</span>}
       </td>
       <td className={`${cell} text-center`}>
-        {canEdit ? <PrioritySelect value={t.priority} label={`Priority of ${t.title}`} onChange={(v) => void patch({ priority: v })} />
-          : <Pill tone={PRIORITY_TONE[t.priority]}>{t.priority}</Pill>}
+        {editCells ? <PrioritySelect value={t.priority} label={`Priority of ${t.title}`} onChange={(v) => void patch({ priority: v })} />
+          : <PriorityBadge priority={t.priority} className="min-w-[6rem]" />}
       </td>
     </tr>
   );
@@ -456,21 +486,25 @@ function SheetLine({ row: x, projectId, people, extra, canEdit, save, autoFocus,
     Object.fromEntries(Object.entries(p).map(([k, v]) => [key(k), v])));
   const blank = !x.title && !x.comment && !extra.length;
   return (
-    <tr data-testid="tasklist-sheet-row" data-row={x.id} className="hover:bg-paper/60">
+    <tr data-testid="tasklist-sheet-row" data-row={x.id} className={`${ROW} hover:bg-paper/60`}>
       <td className={cell}>
         <div className="flex items-start gap-1">
+          {/* an added row has no task number: the slot stays so its name lines up with the tasks' names */}
+          <span className={NO_SLOT} aria-hidden data-testid="row-no" />
           {canEdit ? (
             <>
               <CellText value={x.title} label={`Name of ${label}`} placeholder="Type a task name…" maxLength={300} autoFocus={autoFocus} testId="row-title"
                 onSave={(v) => patch({ title: v })} />
               <CategorySelect value={x.category} label={`Category of ${label}`} onChange={(v) => void patch({ category: v })} />
-              {blank ? (
-                <button type="button" title="Remove this empty row" aria-label={`Remove ${label}`} data-testid="remove-row"
-                  onClick={() => void save(() => removeTasklistRow({ row_id: x.id, project_id: projectId }), { [`x:${x.id}`]: true })}
-                  className="mt-1 shrink-0 text-ink-faint hover:text-[#b3261e]"><Trash2 size={13} /></button>
-              ) : null}
             </>
-          ) : <><span className="min-w-0 flex-1 pt-1 text-[13px]">{x.title || <span className="text-ink-faint">-</span>}</span><CategoryPill value={x.category} /></>}
+          ) : <><span className="min-w-0 flex-1 px-1.5 pt-1 text-[13px]">{x.title || <span className="text-ink-faint">-</span>}</span><CategoryPill value={x.category} /></>}
+          <span className={ICON_SLOT}>
+            {canEdit && blank ? (
+              <button type="button" title="Remove this empty row" aria-label={`Remove ${label}`} data-testid="remove-row"
+                onClick={() => void save(() => removeTasklistRow({ row_id: x.id, project_id: projectId }), { [`x:${x.id}`]: true })}
+                className="text-ink-faint hover:text-[#b3261e]"><Trash2 size={13} /></button>
+            ) : null}
+          </span>
         </div>
       </td>
       <td className={cell}>
@@ -480,6 +514,8 @@ function SheetLine({ row: x, projectId, people, extra, canEdit, save, autoFocus,
         {canEdit ? <StatusSelect value={x.status} label={`Status of ${label}`} onChange={(v) => void patch({ status: v as Status })} />
           : <Pill tone={STATUS_TONE[x.status]}>{tasklistStatus(x.status)}</Pill>}
       </td>
+      {/* an added row is a sheet line, not a task: it has no deadline */}
+      <td className={`${cell} text-center`} data-testid="tasklist-deadline"><span className="text-[13px] text-ink-faint">-</span></td>
       <td className={cell}>
         {canEdit ? (
           <CellText value={x.comment} label={`Comment on ${label}`} placeholder="-" maxLength={500} testId="row-comment"
@@ -488,7 +524,7 @@ function SheetLine({ row: x, projectId, people, extra, canEdit, save, autoFocus,
       </td>
       <td className={`${cell} text-center`}>
         {canEdit ? <PrioritySelect value={x.priority} label={`Priority of ${label}`} onChange={(v) => void patch({ priority: v })} />
-          : <Pill tone={PRIORITY_TONE[x.priority]}>{x.priority}</Pill>}
+          : <PriorityBadge priority={x.priority} className="min-w-[6rem]" />}
       </td>
     </tr>
   );

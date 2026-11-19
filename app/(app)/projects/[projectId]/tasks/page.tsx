@@ -39,7 +39,7 @@ export default async function ProjectTasksPage({ params, searchParams }: {
           <Link href={`/projects/${projectId}/tasks`} className="text-steel hover:underline">Clear filter</Link>
         </div>
       ) : null}
-      <ProjectPlan nodes={nodes} caps={capsForTree(s, project, nodes)} projectId={projectId} meId={s.userId} assignees={assignees}
+      <ProjectPlan nodes={nodes} caps={capsForTree(s, project, nodes)} projectId={projectId} meId={s.userId} isAdmin={s.isAdmin} assignees={assignees}
         canCreate={(manages || isMember) && !project.archived} managerView={manages} basePath={`/projects/${projectId}/tasks`}
         title={{ name: project.name, prepared: project.start_date ?? project.created_at }} context={context} />
     </>

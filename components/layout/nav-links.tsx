@@ -39,7 +39,7 @@ export function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?:
   );
 }
 
-export function MobileNav({ items }: { items: NavItem[] }) {
+export function MobileNav({ items, actions = [] }: { items: NavItem[]; actions?: { href: string; label: string }[] }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="md:hidden">
@@ -48,6 +48,14 @@ export function MobileNav({ items }: { items: NavItem[] }) {
       </button>
       {open ? (
         <div className="fixed inset-x-0 top-14 z-40 max-h-[calc(100dvh-3.5rem)] overflow-y-auto bg-graphite p-3">
+          {actions.length ? (
+            <div className="mb-3 flex flex-col gap-2">
+              {actions.map((a) => (
+                <Link key={a.href} href={a.href} onClick={() => setOpen(false)}
+                  className="rounded-md bg-sage px-3 py-2 text-center text-[15px] font-medium text-ink hover:bg-steel-wash">{a.label}</Link>
+              ))}
+            </div>
+          ) : null}
           <NavLinks items={items} onNavigate={() => setOpen(false)} />
         </div>
       ) : null}

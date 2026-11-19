@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { type ActionResult, fail } from "@/lib/errors";
 import { fromLocalInput } from "@/lib/time";
-import { firstIssue, taskCreate, taskPatch, taskStatus, type TaskCreate, type TaskPatch } from "@/lib/validation";
+import { cellPatch, firstIssue, taskCreate, taskPatch, taskStatus, type CellPatch, type TaskCreate, type TaskPatch } from "@/lib/validation";
 import type { TablesInsert, TablesUpdate } from "@/types/database";
 
 const refresh = () => revalidatePath("/", "layout");
@@ -43,11 +43,49 @@ export async function updateTask(taskId: string, input: TaskPatch): Promise<Acti
   return { ok: true, message: "Saved" };
 }
 
+/**
+ * A status change from a Status dropdown (or Mark Done). Managers set any status on any task of their projects; an
+ * engineer member any status on their OWN tasks (assigned to them or created by them), reopening a Completed task
+ * included: member_update_task (migration 32) checks that and the task triggers apply the rest (completion time,
+ * 100% on Completed, activity log, notifications); completing a task with open subtasks stays a manager's call.
+ * Someone no longer a member of the project keeps the plain table update and its rules (forward moves on a task
+ * still assigned to them).
+ */
+async function changeStatus(taskId: string, status: string) {
+  const supabase = await createClient();
+  const r = await supabase.rpc("member_update_task", { p_task: taskId, p: { status } });
+  if (r.error?.message?.startsWith("Only members of this project")) {
+    return supabase.from("tasks").update({ status: status as TablesUpdate<"tasks">["status"] }).eq("id", taskId);
+  }
+  return r;
+}
+
+/**
+ * A cell of an existing Responsibilities row: name, Remarks, Assign To, Priority or Progress. Admin, PM and
+ * Department Head may change every cell; an engineer member every cell but End Date, on any task of the project.
+ * member_update_task (migration 32) checks that again and the task triggers log the change.
+ */
+export async function saveCell(taskId: string, input: CellPatch): Promise<ActionResult> {
+  const p = cellPatch.safeParse(input);
+  if (!p.success) return { ok: false, message: firstIssue(p.error) };
+  // only the cells sent; a cleared Remarks (null) goes as "" and is stored as empty
+  const patch = Object.fromEntries(Object.entries(p.data).filter(([, v]) => v !== undefined).map(([k, v]) => [k, v ?? ""]));
+  if (Object.keys(patch).length === 0) return { ok: true };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("member_update_task", { p_task: taskId, p: patch });
+  if (error) return fail(error);
+  refresh();
+  return { ok: true, message: "Saved" };
+}
+
 export async function setStatus(taskId: string, status: string): Promise<ActionResult> {
   const s = taskStatus.safeParse(status);
   if (!s.success) return { ok: false, message: "Unknown status" };
   if (s.data === "Completed") return completeTask(taskId);
-  return updateTask(taskId, { status: s.data });
+  const { error } = await changeStatus(taskId, s.data);
+  if (error) return fail(error);
+  refresh();
+  return { ok: true, message: `Status: ${s.data}` };
 }
 
 export async function setProgress(taskId: string, value: number): Promise<ActionResult> {
@@ -71,11 +109,12 @@ export async function submitPlan(taskId: string, currentStatus: string): Promise
 }
 
 export async function completeTask(taskId: string): Promise<ActionResult<{ parentId: string | null }>> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("complete_task", { p_task: taskId });
+  const { error } = await changeStatus(taskId, "Completed");
   if (error) return fail(error);
+  const supabase = await createClient();
+  const { data } = await supabase.from("tasks").select("code, parent_id").eq("id", taskId).maybeSingle();
   refresh();
-  return { ok: true, message: `${data.code} completed`, data: { parentId: data.parent_id } };
+  return { ok: true, message: `${data?.code ?? "Task"} completed`, data: { parentId: data?.parent_id ?? null } };
 }
 
 export async function setDeadline(taskId: string, local: string | null): Promise<ActionResult> {
@@ -86,6 +125,20 @@ export async function setDeadline(taskId: string, local: string | null): Promise
   if (error) return fail(error);
   refresh();
   return { ok: true, message: local ? "Deadline set" : "Deadline cleared" };
+}
+
+/**
+ * The End Date / Deadline cell (Responsibilities and Tasklist): the task's deadline becomes the office closing
+ * time of that Dhaka day. Project PM, Department Head or Admin only; set_task_end_date checks it again and the
+ * task triggers write the change to the activity log.
+ */
+export async function setEndDate(taskId: string, day: string): Promise<ActionResult> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return { ok: false, message: "Choose a date" };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_task_end_date", { p_task: taskId, p_day: day });
+  if (error) return fail(error);
+  refresh();
+  return { ok: true, message: "End date saved" };
 }
 
 export async function grantExtension(taskId: string, local: string, reason: string): Promise<ActionResult> {

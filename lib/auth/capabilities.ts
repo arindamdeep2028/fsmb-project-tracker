@@ -52,6 +52,11 @@ export const ALL_STATUSES: TaskStatus[] = ["Not started", "Plan submitted", "In 
 
 export type TaskCaps = {
   manager: boolean;
+  /**
+   * a current member of the task's project working on their OWN task (assigned to them or created by them): an
+   * engineer edits every Responsibilities cell of it but End Date (member_update_task). For a manager: membership.
+   */
+  member: boolean;
   isAssignee: boolean;
   statuses: TaskStatus[];
   progress: boolean;
@@ -65,22 +70,68 @@ export type TaskCaps = {
   comment: boolean;
 };
 
+/** Which cells of an existing Responsibilities row a viewer may edit in place (spreadsheet view). */
+export type CellCaps = {
+  title: boolean; assignee: boolean; remarks: boolean; endDate: boolean; priority: boolean; progress: boolean;
+  /** statuses offered in the Status dropdown (Completed goes through Mark Done, which checks open subtasks) */
+  statuses: TaskStatus[];
+};
+
+/**
+ * Which cells of an existing Responsibilities row a viewer edits in place (migration 32):
+ *   Admin, project PM, Department Head   every cell
+ *   engineer member of the project       every cell but End Date, on their own tasks only (assigned to them or
+ *                                        created by them); a colleague's task is read-only (member_update_task)
+ *   anyone else                          their existing rights (e.g. the assignee of a project they have left)
+ * Every user who may change a status may also move a Completed task back to any other status. Progress is typed
+ * only on a task without subtasks that is not Completed (a parent's progress is calculated).
+ */
+export function cellCaps(c: TaskCaps | undefined, t: { status: TaskStatus; isLeaf: boolean }): CellCaps {
+  const done = t.status === "Completed";
+  if (!c) return { title: false, assignee: false, remarks: false, endDate: false, priority: false, progress: false, statuses: [] };
+  const all = c.manager || c.member;
+  return {
+    title: all || c.titleAndAssignee,
+    assignee: all || c.titleAndAssignee,
+    remarks: all || c.titleAndAssignee,
+    endDate: c.manager && c.deadline && !done,
+    priority: all || c.priority,
+    progress: (all || c.progress) && t.isLeaf && !done,
+    statuses: c.statuses.filter((s) => s !== "Completed"),
+  };
+}
+
+/**
+ * The statuses a daily report may set (the report applies them as its author, through the role rules of the
+ * task triggers): a manager any, the assignee forward only. Reopening is done from the Status dropdown.
+ */
+export function reportStatuses(s: Session, t: TaskRef, managesProject: boolean): TaskStatus[] {
+  if (managesProject) return ALL_STATUSES.filter((x) => x !== t.status);
+  return t.assigned_to === s.userId ? FORWARD[t.status] : [];
+}
+
 export function taskCaps(s: Session, t: TaskRef, managesProject: boolean, isLeaf: boolean): TaskCaps {
   const me = s.userId;
   const isAssignee = t.assigned_to === me;
   const isCreator = t.created_by === me;
   if (managesProject) {
     return {
-      manager: true, isAssignee, statuses: ALL_STATUSES.filter((x) => x !== t.status), progress: isLeaf,
+      manager: true, member: s.memberProjectIds.includes(t.project_id), isAssignee, statuses: ALL_STATUSES.filter((x) => x !== t.status), progress: isLeaf,
       priority: true, contribution: true, titleAndAssignee: true, deadline: true, lockContribution: true,
       archive: true, remove: s.isAdmin, comment: true,
     };
   }
   const notStarted = t.status === "Not started";
+  // an engineer works on their own tasks only (assigned to them or created by them), never on a colleague's
+  const ownMember = s.memberProjectIds.includes(t.project_id) && (isAssignee || isCreator);
   return {
     manager: false,
+    member: ownMember,
     isAssignee,
-    statuses: isAssignee ? FORWARD[t.status] : [],
+    // Status: on their own task an engineer member sets any status, reopening a Completed task included
+    // (member_update_task checks it again). Someone no longer a member keeps the forward moves on a task still
+    // assigned to them; a colleague's task offers no status change.
+    statuses: ownMember ? ALL_STATUSES.filter((x) => x !== t.status) : isAssignee ? FORWARD[t.status] : [],
     progress: isAssignee && isLeaf && t.status !== "Completed",
     priority: isAssignee,
     contribution: (isAssignee || isCreator) && !t.contribution_locked,

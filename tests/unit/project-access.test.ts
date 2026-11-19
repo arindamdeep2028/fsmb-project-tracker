@@ -47,15 +47,16 @@ describe("a member sees colleagues' tasks but works only on their own", () => {
   const s = { userId: "me", email: null, isAdmin: false, headedDepartmentIds: [], pmProjectIds: [], memberProjectIds: ["p1"],
     profile: { role: "engineer" } as Session["profile"] } satisfies Session;
   const task = (assigned_to: string) => ({ project_id: "p1", assigned_to, created_by: "pm", status: "In progress" as const, contribution_locked: false });
-  it("no controls on a colleague's task", () => {
+  it("no controls on a colleague's task (engineers edit only their own tasks)", () => {
     const c = taskCaps(s, task("colleague"), false, true);
     expect(c.statuses).toEqual([]);
+    expect(c.member).toBe(false);
     expect(c.progress).toBe(false);
     expect(c.comment).toBe(false);
   });
   it("status and progress on my own task", () => {
     const c = taskCaps(s, task("me"), false, true);
-    expect(c.statuses).toEqual(["Blocked", "Completed"]);
+    expect(c.statuses).toEqual(["Not started", "Plan submitted", "Blocked", "Completed"]);
     expect(c.progress).toBe(true);
   });
 });

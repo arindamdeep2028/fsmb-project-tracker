@@ -7,7 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea, FormMessage } from "@/components/ui/form";
 import { createTask, updateTask } from "@/lib/actions/tasks";
-import { PRIORITIES } from "@/lib/labels";
+import { priorityChoices } from "@/lib/labels";
 import { toLocalInput } from "@/lib/time";
 import type { TaskCaps } from "@/lib/auth/capabilities";
 import { useToast } from "@/components/toast";
@@ -15,7 +15,7 @@ import { useToast } from "@/components/toast";
 const formSchema = z.object({
   title: z.string().trim().min(1, "Give the task a title").max(300),
   description: z.string().max(5000),
-  priority: z.enum(["Important", "High", "Normal", "Low"]),
+  priority: z.enum(["Normal", "Important", "Urgent"]),
   assigned_to: z.string().min(1, "Choose who owns it"),
   contribution: z.string().refine((v) => v === "" || (Number(v) >= 0 && Number(v) <= 100), "0 to 100, or leave empty for an equal share"),
   planned_due_local: z.string(),
@@ -96,7 +96,7 @@ export function TaskDialog({ open, onOpenChange, projectId, parent, task, caps, 
             </Field>
             <Field label="Priority" htmlFor="t-priority">
               <Select id="t-priority" {...f.register("priority")} disabled={!creating && !caps.priority}>
-                {PRIORITIES.map((p) => <option key={p}>{p}</option>)}
+                {priorityChoices().map((p) => <option key={p}>{p}</option>)}
               </Select>
             </Field>
             <Field label={parent ? "Share of the parent task (%)" : "Share of the project (%)"} htmlFor="t-contrib" error={e.contribution?.message} hint="Empty = equal share of what's left.">

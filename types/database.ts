@@ -1920,8 +1920,11 @@ export type Database = {
       save_daily_row: { Args: { p: Json }; Returns: string }
       tasklist_add_rows: { Args: { p_project: string; p_count: number; p_phase?: string | null; p_category?: string }; Returns: string[] }
       tasklist_update_task: { Args: { p_task: string; p: Json }; Returns: undefined }
+      member_update_task: { Args: { p_task: string; p: Json }; Returns: undefined }
+      tasklist_set_deadline: { Args: { p_task: string; p_day: string }; Returns: undefined }
       set_project_status: { Args: { p_project: string; p_status: Database["public"]["Enums"]["project_status"]; p_reason?: string | null }; Returns: undefined }
       set_task_deadline: { Args: { p_task: string; p_due: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
+      set_task_end_date: { Args: { p_task: string; p_day: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
       send_chat_message: { Args: { p: Json }; Returns: string }
       start_direct_chat: { Args: { p_other: string }; Returns: string }
     }
@@ -1933,7 +1936,8 @@ export type Database = {
       project_member_role: "pm" | "engineer"
       project_status: "Active" | "On hold" | "Completed" | "Cancelled"
       project_category: "Software" | "Embedded" | "Optical" | "Mechanical"
-      task_priority: "Important" | "High" | "Normal" | "Low"
+      // the enum still holds High and Low, but checks on tasks / tasklist_rows refuse them (migration 31)
+      task_priority: "Normal" | "Important" | "Urgent"
       task_status: "Not started" | "Plan submitted" | "In progress" | "Blocked" | "Completed"
       task_type: "Task" | "Subtask"
       user_role: "admin" | "dept_head" | "pm" | "engineer"

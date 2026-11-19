@@ -25,7 +25,7 @@ export function TaskDetailActions({ task, caps, openSubtasks, parentPrompt, assi
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        {!done && (caps.manager || caps.isAssignee) ? <MarkDoneButton task={task} openSubtasks={openSubtasks} manager={caps.manager} parentPrompt={parentPrompt} size="md" /> : null}
+        {!done && caps.statuses.includes("Completed") ? <MarkDoneButton task={task} openSubtasks={openSubtasks} manager={caps.manager} parentPrompt={parentPrompt} size="md" /> : null}
         {caps.isAssignee && !task.plan_submitted_at && !done ? <Button variant="secondary" pending={pending} onClick={() => run(() => submitPlan(task.id, task.status))}>Submit plan</Button> : null}
         {caps.manager || caps.titleAndAssignee || caps.priority || caps.contribution ? <Button variant="secondary" onClick={() => setEdit(true)}>Edit</Button> : null}
         {caps.deadline && !done ? <Button variant="secondary" onClick={() => setExtend(true)}>Grant extension</Button> : null}

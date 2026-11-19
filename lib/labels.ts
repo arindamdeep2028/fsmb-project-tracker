@@ -59,7 +59,15 @@ export const notificationLabel: Record<Enums<"notification_type">, string> = {
   chat_reply: "Chat reply",
 };
 
-export const PRIORITIES: Enums<"task_priority">[] = ["Important", "High", "Normal", "Low"];
+/**
+ * The priority levels of a task: Normal, Important, Urgent (migration 30). The earlier High and Low were moved to
+ * Important and Normal by migration 31, and the database no longer accepts them.
+ */
+export const PRIORITIES: Enums<"task_priority">[] = ["Normal", "Important", "Urgent"];
+/** The choices of a priority dropdown: always the three levels. */
+export function priorityChoices(): Enums<"task_priority">[] {
+  return PRIORITIES;
+}
 export const PROJECT_STATUSES: Enums<"project_status">[] = ["Active", "On hold", "Completed", "Cancelled"];
 
 export function scoreBand(score: number | null | undefined): { label: string; signal: Signal } {

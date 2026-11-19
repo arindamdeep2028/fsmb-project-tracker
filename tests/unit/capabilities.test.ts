@@ -24,9 +24,9 @@ describe("capabilities mirror the database rules (UI only; RLS enforces)", () =>
     expect(canManageProject(s, project)).toBe(true);
     expect(canManageProject(s, { id: "p9", department_id: "d2" })).toBe(false);
   });
-  it("assignee moves status forward only and types progress on leaf tasks", () => {
+  it("a member sets any status (reopening included); the assignee types progress on leaf tasks", () => {
     const c = taskCaps(base(), task(), false, true);
-    expect(c.statuses).toEqual(["Blocked", "Completed"]);
+    expect(c.statuses).toEqual(["Not started", "Plan submitted", "Blocked", "Completed"]);
     expect(c.progress).toBe(true);
     expect(taskCaps(base(), task(), false, false).progress).toBe(false);
     expect(c.deadline).toBe(false);

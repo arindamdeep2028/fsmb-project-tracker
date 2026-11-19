@@ -147,7 +147,9 @@ describe("Excel formatting", () => {
     expect(toneFor("status", "Done")).toMatchObject({ fill: "#d9efdf" });
     expect(toneFor("status", "On-Going")).toMatchObject({ fill: "#fbe8b4" });
     expect(toneFor("status", "Pending")).toMatchObject({ fill: "#b3261e", color: "#ffffff" });
-    expect(toneFor("priority", "Important")).toMatchObject({ fill: "#b3261e" });
+    // migration 30: Urgent is the red level; Important is orange
+    expect(toneFor("priority", "Urgent")).toMatchObject({ fill: "#b3261e" });
+    expect(toneFor("priority", "Important")).toMatchObject({ fill: "#fde3c8" });
     expect(toneFor("score", 85)).toMatchObject({ fill: "#d9efdf" });
     expect(toneFor("score", 40)).toMatchObject({ fill: "#f6d5d3" });
     expect(toneFor("text", "Done")).toBeUndefined();

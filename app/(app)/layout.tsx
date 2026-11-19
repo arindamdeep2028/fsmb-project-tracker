@@ -16,6 +16,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const items = navFor(s).map((i) => (i.href === "/announcements" ? { ...i, count: announcementsUnread }
     : i.href === "/chat" ? { ...i, count: chatUnread } : i));
   const canReport = s.memberProjectIds.length > 0;
+  const bar = "rounded-md bg-sage px-3 py-2 text-center text-[15px] font-medium text-ink hover:bg-steel-wash";
+  // both bars for every signed-in user, Submit today's report first (each page explains when there is nothing to do)
+  const actions = [
+    { href: "/daily-reports/new", label: "Submit today's report", testId: "bar-report" },
+    { href: "/projects/responsibilities", label: "Responsibilities", testId: "bar-responsibilities" },
+  ];
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh flex-col bg-graphite px-3 py-5 md:flex">
@@ -23,15 +29,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <span className="block text-lg font-semibold leading-tight">FSMB</span>
           <span className="block text-sm text-white/85">Project Tracker</span>
         </Link>
-        {canReport ? (
-          <Link href="/daily-reports/new" className="mb-5 rounded-md bg-sage px-3 py-2 text-center text-[15px] font-medium text-ink hover:bg-steel-wash">Submit today's report</Link>
+        {actions.length ? (
+          <div className="mb-5 flex flex-col gap-2">
+            {actions.map((a) => <Link key={a.href} href={a.href} data-testid={a.testId} className={bar}>{a.label}</Link>)}
+          </div>
         ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto"><NavLinks items={items} /></div>
       </aside>
       <div className="min-w-0">
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-line bg-panel/95 px-4 backdrop-blur md:px-8">
           <div className="flex items-center gap-2">
-            <MobileNav items={items} />
+            <MobileNav items={items} actions={actions} />
             <span className="font-semibold md:hidden">FSMB</span>
           </div>
           <div className="flex items-center gap-1">

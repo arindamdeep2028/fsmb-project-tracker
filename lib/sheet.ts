@@ -1,4 +1,5 @@
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { fmt } from "@/lib/time";
 
 /**
  * Helpers for the two workbook layouts the app mirrors: the project Task list
@@ -72,8 +73,13 @@ export const STATUS_TONE: Record<string, [string, string]> = {
 };
 /** Priority colours (Tasklist): [background, text]. */
 export const PRIORITY_TONE: Record<string, [string, string]> = {
-  Important: ["#b3261e", "#ffffff"], High: ["#f6d5d3", "#9b1c17"], Normal: ["#e9efe9", "#34483c"], Low: ["#edf0f3", "#5b6878"],
+  Urgent: ["#b3261e", "#ffffff"], Important: ["#fde3c8", "#8a3d00"], Normal: ["#e9efe9", "#34483c"],
 };
+
+/** A deadline / end date as the sheets show it, in Dhaka time ("12/3/2026"); "" when there is none. */
+export const sheetDay = (ts: string | null | undefined): string => (ts ? fmt(ts, "M/d/yyyy") : "");
+/** The Dhaka calendar date of a timestamp as "yyyy-MM-dd" (for a date input); "" when there is none. */
+export const dhakaDateOf = (ts: string | null | undefined): string => (ts ? fmt(ts, "yyyy-MM-dd") : "");
 
 /** An Admin's remark on a project day, addressed to one member (migration 27). Legacy notes come from the report text. */
 export type DayRemark = {

@@ -50,7 +50,7 @@ export default async function TasklistPage({ params }: { params: Promise<{ proje
   const toRow = (t: TaskNode): TasklistTask => ({
     id: t.id, code: t.code, title: t.title, parent_id: t.parent_id, status: t.status, priority: t.priority,
     assigned_to: t.assigned_to, assignee_name: t.assignee_name, created_by: t.created_by, contribution_locked: t.contribution_locked,
-    is_leaf: t.is_leaf, children: t.children.map(toRow),
+    is_leaf: t.is_leaf, children: t.children.map(toRow), due: t.effective_due_at,
   });
   const roots = tree.map(toRow);
   const rows: SheetRow[] = (sheet.data ?? []).map((r) => ({
@@ -61,6 +61,8 @@ export default async function TasklistPage({ params }: { params: Promise<{ proje
     <Tasklist projectId={id} projectName={`${project.code} ${project.name}`}
       data={{ loadedAt, rows: tasklistRows(roots, rows), phases: phaseChoices(roots), assignees, comments, categories }}
       people={current.map((m) => ({ id: m.user_id, name: m.full_name }))}
-      canEdit={canEdit} archived={project.archived} canExport={manages} />
+      canEdit={canEdit} archived={project.archived} canExport={manages}
+      /* every column, Deadline included, is edited by every member of the project and its managers (migration 32) */
+      canDeadline={canEdit} />
   );
 }

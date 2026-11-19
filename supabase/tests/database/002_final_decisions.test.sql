@@ -56,7 +56,7 @@ select lives_ok($$update public.departments set name = 'R&D Lab' where id = 'd00
 select lives_ok($$update public.projects set name = 'Renamed', department_id = 'd0000000-0000-0000-0000-000000000003' where code = 'P02'$$, 'Admin edits any project, including its department');
 select lives_ok($$update public.profiles set role = 'pm' where login_name = 'araf'$$, 'Admin changes roles');
 select lives_ok($$insert into public.project_members (project_id, user_id, member_role) values ('aaaaaaaa-0000-0000-0000-000000000003', '11111111-0000-0000-0000-000000000013', 'engineer')$$, 'Admin manages members of any project');
-select lives_ok($$update public.tasks set priority = 'Low', status = 'Not started', contribution_pct = 10, planned_due_at = now() + interval '9 days' where code = 'P03-T01'$$,
+select lives_ok($$update public.tasks set priority = 'Normal', status = 'Not started', contribution_pct = 10, planned_due_at = now() + interval '9 days' where code = 'P03-T01'$$,
           'Admin edits priority, status (backwards), contribution and deadline of any task');
 select lives_ok($$update public.task_comments set body = 'Edited by admin' where task_id = 'bbbbbbbb-0000-0000-0000-000000000102'$$, 'Admin edits any comment');
 select lives_ok($$update public.daily_reports set locked = true where user_id = '11111111-0000-0000-0000-000000000012'$$, 'Admin locks / unlocks any report');

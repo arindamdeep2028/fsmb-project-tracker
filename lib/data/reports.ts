@@ -2,8 +2,9 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { BUCKET } from "@/lib/storage";
 import { dhakaToday, fmt } from "@/lib/time";
-import { dateRange, isOffDay, letterOf, projectDayNumber, taskLabel, type DailyRow, type DayRemark, type ReportOrder, type TaskFile } from "@/lib/sheet";
+import { dateRange, isOffDay, projectDayNumber, taskLabel, type DailyRow, type DayRemark, type ReportOrder, type TaskFile } from "@/lib/sheet";
 import { totalHours } from "@/lib/hours";
+import { reportView } from "@/lib/report-entries";
 
 /** Short-lived signed links (10 min) for stored files, keyed by path, read with the caller's own access. */
 async function signedUrls(supabase: Awaited<ReturnType<typeof createClient>>, paths: string[]): Promise<Record<string, string>> {
@@ -73,20 +74,23 @@ export async function getReport(id: string) {
  * subtasks in the chosen project (each with its parent for the Main Task label) and today's update if any.
  * A task today's update already lists is included even once it is Completed, so its entry stays in the form.
  */
-export async function getReportFormData(userId: string, projectId?: string) {
+export async function getReportFormData(userId: string, projectId?: string, opts: { date?: string; allProjects?: boolean; viewerId?: string } = {}) {
   const supabase = await createClient();
-  const { data: memberships } = await supabase.from("project_members")
-    .select("project:projects(id, code, name, archived, status, department_id, start_date, created_at)").eq("user_id", userId).is("removed_at", null);
+  // the projects offered: my memberships; an Admin (allProjects) every project RLS shows them
+  const projectCols = "id, code, name, archived, status, department_id, start_date, created_at";
+  const list = opts.allProjects
+    ? ((await supabase.from("projects").select(projectCols)).data ?? [])
+    : ((await supabase.from("project_members").select(`project:projects(${projectCols})`).eq("user_id", opts.viewerId ?? userId).is("removed_at", null)).data ?? []).map((m) => m.project);
   // only running projects (status Active) are offered for a daily update
-  const projects = (memberships ?? []).map((m) => m.project).filter((p): p is NonNullable<typeof p> => Boolean(p && !p.archived && p.status === "Active"))
+  const projects = list.filter((p): p is NonNullable<typeof p> => Boolean(p && !p.archived && p.status === "Active"))
     .sort((a, b) => a.code.localeCompare(b.code));
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
   if (!project) return { projects, project: null, tasks: [], existing: null };
   const [tasks, existing, leafRows] = await Promise.all([
     supabase.from("tasks").select("id, project_id, code, title, parent_id, status, progress_pct, assigned_to, created_by, contribution_locked")
       .eq("project_id", project.id).eq("assigned_to", userId).eq("archived", false).order("code"),
-    supabase.from("daily_reports").select("*, daily_report_items(*), daily_report_attachments(*)")
-      .eq("user_id", userId).eq("project_id", project.id).eq("report_date", dhakaToday()).maybeSingle(),
+    supabase.from("daily_reports").select("*, daily_report_items(*, parent:tasks!daily_report_items_parent_task_id_fkey(code, title)), daily_report_attachments(*)")
+      .eq("user_id", userId).eq("project_id", project.id).eq("report_date", opts.date ?? dhakaToday()).maybeSingle(),
     supabase.from("task_rollup").select("task_id, is_leaf, calculated_progress").eq("project_id", project.id),
   ]);
   const leaf = new Map((leafRows.data ?? []).map((r) => [r.task_id, r.is_leaf]));
@@ -165,7 +169,7 @@ export async function projectDailyLog(
   if (from > opts.to) return [];
   const supabase = await createClient();
   let q = supabase.from("daily_reports")
-    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, locked, work_hours, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_id, task_code, task_title, status_after, progress_after, work_hours, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title)), daily_report_attachments!daily_report_attachments_report_id_fkey(id, task_id, file_name, mime_type, storage_path, uploaded_at)")
+    .select("id, user_id, report_date, update_text, issues, next_task_text, remarks, locked, work_hours, author:profiles!daily_reports_user_id_fkey(full_name), next_task:tasks!daily_reports_next_task_id_fkey(code, title), daily_report_items(task_id, task_code, task_title, status_after, progress_after, work_hours, work_text, issues, next_task_text, created_at, parent:tasks!daily_report_items_parent_task_id_fkey(code, title)), daily_report_attachments!daily_report_attachments_report_id_fkey(id, task_id, file_name, mime_type, storage_path, uploaded_at)")
     .eq("project_id", project.id).gte("report_date", from).lte("report_date", opts.to).order("submitted_at");
   if (opts.user) q = q.eq("user_id", opts.user.id);
   const { data } = await q;
@@ -187,6 +191,8 @@ export async function projectDailyLog(
     }
     return reports.map((r) => {
       const items = [...(r.daily_report_items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
+      // entries with their own text (migration 35), or the report's one text for an older report
+      const view = reportView(r, items, r.next_task ? taskLabel(r.next_task.code, r.next_task.title) : null);
       return {
       ...base, key: r.id, reportId: r.id, userId: r.user_id, locked: r.locked,
       edit: {
@@ -194,17 +200,13 @@ export async function projectDailyLog(
         taskHours: items[0]?.work_hours ?? null, reportHours: r.work_hours ?? null,
       },
       hours: totalHours([r.work_hours, ...items.map((i) => i.work_hours)]),
-      mainTask: items.map((i) => ({
-        ...(i.parent
-          ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
-          : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after }),
-        taskId: i.task_id, files: filesOf(r, i.task_id),
-      })),
+      entries: view.multi,
+      mainTask: view.entries.map((e) => ({ ...e, files: filesOf(r, e.taskId) })),
       fileCount: (r.daily_report_attachments ?? []).length,
-      dailySubTask: r.update_text,
+      dailySubTask: view.text,
       assignedTo: r.author?.full_name ?? "",
-      issues: r.issues ?? "",
-      nextTask: r.next_task ? taskLabel(r.next_task.code, r.next_task.title) : r.next_task_text ?? "",
+      issues: view.issues,
+      nextTask: view.nextTask,
       remarks: r.remarks ?? "",
       };
     });

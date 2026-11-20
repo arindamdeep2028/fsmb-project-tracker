@@ -1,5 +1,6 @@
 "use client";
 import { Fragment, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, UserPlus } from "lucide-react";
 import { saveDailyRow } from "@/lib/actions/reports";
@@ -93,7 +94,14 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
     || (Boolean(ownerOf(d)) && ownerOf(d) !== d.userId && Boolean(saved(d.date, d.userId)));
   /** The row creates a new report (no saved report for this person and day yet): files can be chosen before saving. */
   const isNew = (d: Draft) => !(d.key && rows.find((r) => r.key === d.key)?.reportId) && !saved(d.date, d.userId);
-  const open = () => { setError(null); setDraft(blank(today, people.some((p) => p.id === meId) ? meId : people[0]?.id ?? meId)); };
+  /** a report with several entries (migration 35) is edited in the Submit Daily Report form, never in a single row */
+  const entriesForm = (r: DailyRow) => `/daily-reports/new?${new URLSearchParams({ project: projectId, ...(r.userId === meId && r.date === today ? {} : { date: r.date, user: r.userId ?? "" }) })}`;
+  const open = () => {
+    setError(null);
+    const mineToday = saved(today, meId);
+    if (mineToday?.entries) { router.push(entriesForm(mineToday)); return; }
+    setDraft(blank(today, people.some((p) => p.id === meId) ? meId : people[0]?.id ?? meId));
+  };
   /** members with no saved report on a date (Admin: whose missing report can still be filled in) */
   const missingOn = (date: string) => people.filter((p) => !saved(date, p.id));
   /** Admin: a new row for another member on an existing project day */
@@ -257,9 +265,11 @@ export function DailyLogEditor({ projectId, rows, today, start, meId, isAdmin, c
             className={`inline-flex items-center gap-1 text-[11px] font-medium hover:underline ${g[0].offDay ? "text-white" : "text-steel"}`}><UserPlus size={12} aria-hidden />Add report</button>
         ) : null)}
         replaceRow={(r) => (draft?.key === r.key ? <Fragment key={r.key}>{editor(draft)}</Fragment> : null)}
-        rowAction={(r) => (canEdit(r) && !draft ? (
+        rowAction={(r) => (canEdit(r) && !draft ? (r.entries ? (
+          <Link href={entriesForm(r)} data-testid="edit-entries" className={`text-xs font-medium hover:underline ${r.offDay ? "text-white/90" : "text-steel"}`}>Edit</Link>
+        ) : (
           <button type="button" className={`text-xs font-medium hover:underline ${r.offDay ? "text-white/90" : "text-steel"}`} onClick={() => { setError(null); setDraft(fromRow(r)); }}>Edit</button>
-        ) : null)}
+        )) : null)}
         lead={draft && !draft.key && order === "desc" ? editor(draft) : null}
         footer={draft && !draft.key && order === "asc" ? editor(draft) : null} />
       {canAdd && !draft ? <button type="button" onClick={open} className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-line py-2 text-sm text-steel hover:border-steel hover:bg-steel-wash"><Plus size={16} />Add New Row</button> : null}

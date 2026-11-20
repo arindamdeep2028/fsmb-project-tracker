@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { Download, FileText } from "lucide-react";
-import { DAILY_HEAD, DAILY_WIDTHS, STATUS_TONE, dayGroups, remarksForDay, sheetDate, sheetStatus, weekday, type DailyRow, type DayRemark, type TaskFile } from "@/lib/sheet";
+import { DAILY_HEAD, DAILY_WIDTHS, STATUS_TONE, dayGroups, entryFacts, remarksForDay, sheetDate, sheetStatus, weekday, type DailyRow, type DayRemark, type TaskFile } from "@/lib/sheet";
 import { formatHours } from "@/lib/hours";
 import { cn } from "@/lib/utils";
 import { AttachmentChip, RemarksCell } from "./sheet-cells";
@@ -138,12 +138,16 @@ function DayRow({ g, rowAction, dayAction, remarks, remarkContext }: {
   const task = (p: DailyRow) => (
     <div className="text-left">
       {p.mainTask.map((m, i) => (
-        <div key={i} className={cn("font-semibold", i > 0 && "mt-1.5")}>{m.label}{m.sub ? <span className="block text-xs font-medium opacity-80">{m.sub}</span> : null}
+        <div key={i} data-testid="daily-entry" className={cn("font-semibold", i > 0 && (p.entries ? "mt-2 border-t border-dotted border-current/30 pt-2" : "mt-1.5"))}>{m.label}{m.sub ? <span className="block text-xs font-medium opacity-80">{m.sub}</span> : null}
+          {/* an entry of a multi-entry report: its hours, completion and own work text */}
+          {entryFacts(m) ? <span data-testid="entry-facts" className="block text-[11px] font-medium opacity-70">{entryFacts(m)}</span> : null}
+          {m.work ? <span data-testid="entry-work" className="mt-0.5 block font-normal">{p.reportId ? <Link href={`/daily-reports/${p.reportId}`} className="hover:text-steel hover:underline">{m.work}</Link> : m.work}</span> : null}
           {m.files?.length ? <TaskFiles files={m.files} task={m.sub ?? m.label} /> : null}
         </div>
       ))}
       {p.dailySubTask ? (
         <div className={cn(p.mainTask.length > 0 && "mt-1.5")}>
+          {p.entries ? <span className="block text-xs font-semibold opacity-80">Other work</span> : null}
           {p.reportId ? <Link href={`/daily-reports/${p.reportId}`} className="hover:text-steel hover:underline">{p.dailySubTask}</Link> : p.dailySubTask}
         </div>
       ) : null}

@@ -9,6 +9,7 @@ import { canManageProject } from "@/lib/auth/capabilities";
 import { Badge, PageHeader, Section } from "@/components/ui/misc";
 import { DailyLogTable } from "@/components/reports/daily-log-table";
 import { letterOf, projectDayNumber, taskLabel, type DailyRow } from "@/lib/sheet";
+import { reportView } from "@/lib/report-entries";
 import { LinkButton } from "@/components/ui/button";
 import { AttachmentGallery } from "@/components/reports/attachment-gallery";
 import { FileUploader } from "@/components/reports/file-uploader";
@@ -32,19 +33,19 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const manages = r.project ? canManageProject(s, r.project) : false;
   const canUpload = (mine && open) || s.isAdmin;   // the Storage policy: the author while the report is open, or an Admin
   const canDeleteFiles = (mine && open) || manages;
+  // entries with their own text (migration 35), or the report's one text for an older report
+  const view = reportView(r, items, r.next_task ? taskLabel(r.next_task.code, r.next_task.title) : null);
   const row: DailyRow = {
+    entries: view.multi,
     key: r.id, date: r.report_date, reportId: r.id, userId: r.user_id, hours, fileCount: attachments.length, locked: r.locked, edit: null, offDay: false, assignedTo: r.author?.full_name ?? "",
     dayNo: r.project ? projectDayNumber(projectStart(r.project), r.report_date) : null,
-    mainTask: items.map((i) => ({
-      ...(i.parent
-        ? { label: taskLabel(i.parent.code, i.parent.title), sub: `${letterOf(i.task_code)}. ${i.task_title}`, status: i.status_after }
-        : { label: taskLabel(i.task_code, i.task_title), sub: null, status: i.status_after }),
+    mainTask: view.entries.map((e) => ({
+      ...e,
       // the task row's own screenshots and photos (migration 25)
-      taskId: i.task_id,
-      files: attachments.filter((a) => a.task_id === i.task_id).map((a) => ({ id: a.id, name: a.file_name, mime: a.mime_type, url: a.url })),
+      files: attachments.filter((a) => a.task_id === e.taskId).map((a) => ({ id: a.id, name: a.file_name, mime: a.mime_type, url: a.url })),
     })),
-    dailySubTask: r.update_text, issues: r.issues ?? "", remarks: r.remarks ?? "",
-    nextTask: r.next_task ? taskLabel(r.next_task.code, r.next_task.title) : r.next_task_text ?? "",
+    dailySubTask: view.text, issues: view.issues, remarks: r.remarks ?? "",
+    nextTask: view.nextTask,
   };
   // what a file can be attached to here: the whole report, or one of its task rows
   const taskRows = items.map((i) => ({ id: i.task_id, label: i.parent ? `${taskLabel(i.parent.code, i.parent.title)} — ${letterOf(i.task_code)}. ${i.task_title}` : taskLabel(i.task_code, i.task_title) }));
@@ -54,7 +55,8 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
       <PageHeader title={`${r.author?.full_name ?? "Report"}, ${fmtDay(r.report_date)}`}
         lead={<><Link href={`/projects/${r.project?.id}`} className="hover:text-steel hover:underline">{r.project?.code} {r.project?.name}</Link> · submitted {fmt(r.submitted_at)}{r.locked ? " · locked" : ""}</>}
         actions={<>
-          {mine && open ? <LinkButton href={`/daily-reports/new?project=${r.project_id}`}>Edit update</LinkButton> : null}
+          {mine && open ? <LinkButton href={`/daily-reports/new?project=${r.project_id}`}>Edit update</LinkButton>
+            : s.isAdmin ? <LinkButton href={`/daily-reports/new?${new URLSearchParams({ project: r.project_id, date: r.report_date, user: r.user_id })}`}>Edit entries</LinkButton> : null}
           {s.isAdmin ? <ReportAdminActions id={r.id} locked={r.locked} /> : null}
         </>} />
       <div className="space-y-6">

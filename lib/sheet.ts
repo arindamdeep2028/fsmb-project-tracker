@@ -102,8 +102,13 @@ export type DailyRow = {
   edit: { taskId: string | null; status: string | null; progress: number | null; nextTask: string; taskHours?: number | null; reportHours?: number | null } | null;
   /** working hours of the update: the report's own hours plus every task row's hours (null: none recorded) */
   hours?: number | null;
-  /** each task row of the update; `files`: its screenshots/photos (task-row attachments, signed links) */
-  mainTask: { label: string; sub: string | null; status: string | null; taskId?: string; files?: TaskFile[] }[];
+  /**
+   * each task row of the update; `files`: its screenshots/photos (task-row attachments, signed links). An entry of a
+   * multi-entry report (migration 35) also has its own work text, hours and completion.
+   */
+  mainTask: { label: string; sub: string | null; status: string | null; taskId?: string; files?: TaskFile[]; work?: string | null; hours?: number | null; progress?: number | null }[];
+  /** saved with the multi-entry form: each entry has its own text (Issues / Next Task are per entry) */
+  entries?: boolean;
   /** all files attached to the report (whole report + task rows), for the files-per-report limit */
   fileCount?: number;
   dailySubTask: string;
@@ -161,9 +166,16 @@ export function dailyExcelLine(r: DailyRow, remarks: DayRemark[] = []): (string 
   const notes = remarksFor(r, remarks).map((m) => (m.legacy ? `${m.body} (note by ${m.author})` : `${m.body} (from ${m.author} to ${m.recipient})`));
   return [
     r.dayNo ? `Day ${r.dayNo}` : "", sheetDate(r.date), weekday(r.date),
-    [...r.mainTask.map((m) => (m.sub ? `${m.label} / ${m.sub}` : m.label)), r.dailySubTask].filter(Boolean).join("\n"), r.assignedTo,
+    [...r.mainTask.map((m) => [m.sub ? `${m.label} / ${m.sub}` : m.label, entryFacts(m), m.work].filter(Boolean).join("\n")), r.dailySubTask].filter(Boolean).join("\n"), r.assignedTo,
     r.hours ?? null,
     r.mainTask.map((m) => sheetStatus(m.status)).filter(Boolean).join("\n"), r.issues, r.nextTask,
     r.fileCount ? r.fileCount : "", notes.join("\n"),
   ];
+}
+
+/** "3.0 hrs · 50%" for an entry of a multi-entry report (only what it has); "" for an older report's task row. */
+export function entryFacts(m: { work?: string | null; hours?: number | null; progress?: number | null }): string {
+  if (m.work == null) return "";
+  const h = m.hours != null ? `${Number.isInteger(Number(m.hours)) ? Number(m.hours).toFixed(1) : String(Math.round(Number(m.hours) * 100) / 100)} hrs` : null;
+  return [h, m.progress != null ? `${Number(m.progress)}%` : null].filter(Boolean).join(" · ");
 }

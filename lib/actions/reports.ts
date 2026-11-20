@@ -24,15 +24,32 @@ export async function saveReport(input: ReportInput): Promise<ActionResult<{ id:
   const s = await getSession();
   if (!s || !s.profile.active) return { ok: false, message: "Sign in again to save." };
   if (!s.isAdmin && !s.memberProjectIds.includes(v.project_id)) return { ok: false, message: "You can only report on projects where you are a member." };
+  // another person's report, or an earlier day: Admin only (checked again by save_daily_report and the report triggers)
+  const forOther = Boolean(v.user_id && v.user_id !== s.userId);
+  const today = dhakaToday();
+  if (forOther && !s.isAdmin) return { ok: false, message: "Only an Admin can save a daily report for another person." };
+  if (v.report_date && v.report_date > today) return { ok: false, message: "A daily report can't be dated after today." };
+  if (v.report_date && v.report_date !== today && !s.isAdmin) return { ok: false, message: "Daily reports can be submitted for today only." };
   const supabase = await createClient();
+  if (v.report_date && v.report_date !== today) {
+    const { data: project } = await supabase.from("projects").select("start_date, created_at").eq("id", v.project_id).maybeSingle();
+    if (!project) return { ok: false, message: "Not found, or you no longer have access to it." };
+    if (v.report_date < projectStart(project)) return { ok: false, message: "That date is before the project's Day 1." };
+  }
   const payload = {
+    ...(forOther ? { user_id: v.user_id } : {}),
+    ...(v.report_date ? { report_date: v.report_date } : {}),
     project_id: v.project_id, update_text: v.update_text, issues: v.issues || null,
     next_task_id: v.next_task_id || null, next_task_text: v.next_task_text || null,
     // the free-text remark is the Admin's now (migration 27): sent only by an Admin who set it; otherwise it stays
     ...(s.isAdmin && v.remarks != null ? { remarks: v.remarks || null } : {}),
     // hours not tied to a task; absent = keep the saved value
     ...(v.work_hours !== undefined ? { work_hours: v.work_hours } : {}),
-    items: v.items.map((i) => ({ task_id: i.task_id, progress_after: i.progress_after ?? null, status_after: i.status_after ?? null, note: i.note || null, work_hours: i.work_hours ?? null })),
+    items: v.items.map((i) => ({
+      task_id: i.task_id, progress_after: i.progress_after ?? null, status_after: i.status_after ?? null, note: i.note || null, work_hours: i.work_hours ?? null,
+      // an entry of the multi-entry form (migration 35); without work_text the entry keeps the texts it has
+      ...(i.work_text ? { work_text: i.work_text, issues: i.issues || null, next_task_text: i.next_task_text || null } : {}),
+    })),
     remove_task_ids: v.remove_task_ids,
   };
   const { data, error } = await supabase.rpc("save_daily_report", { p: payload as unknown as Json });

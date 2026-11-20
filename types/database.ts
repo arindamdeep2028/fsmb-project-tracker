@@ -237,6 +237,9 @@ export type Database = {
       daily_report_items: {
         Row: {
           work_hours: number | null
+          work_text: string | null
+          issues: string | null
+          next_task_text: string | null
           id: string
           report_id: string
           task_id: string
@@ -250,6 +253,9 @@ export type Database = {
         }
         Insert: {
           work_hours?: number | null
+          work_text?: string | null
+          issues?: string | null
+          next_task_text?: string | null
           id?: string
           report_id: string
           task_id: string
@@ -263,6 +269,9 @@ export type Database = {
         }
         Update: {
           work_hours?: number | null
+          work_text?: string | null
+          issues?: string | null
+          next_task_text?: string | null
           id?: string
           report_id?: string
           task_id?: string

@@ -56,9 +56,16 @@ export const reportItem = z.object({
   status_after: taskStatus.nullable().optional(),
   note: z.string().max(3000).optional().nullable(),
   work_hours: workHours,
+  /** one entry of a multi-entry report (migration 35): its own Work done, Issues and Next Task */
+  work_text: z.string().trim().min(1, "Write the work done today").max(3000).optional(),
+  issues: z.string().max(3000).optional().nullable(),
+  next_task_text: z.string().max(1000).optional().nullable(),
 });
 export const reportInput = z.object({
   project_id: id,
+  /** Admin only: another current member's report, and an earlier date (others: their own report for today) */
+  user_id: id.optional(),
+  report_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date").optional(),
   update_text: z.string().trim().min(1, "Write what you did today").max(5000),
   issues: z.string().max(3000).optional().nullable(),
   next_task_id: z.string().optional().nullable(),

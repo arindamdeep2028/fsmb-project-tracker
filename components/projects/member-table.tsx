@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { addMember, changeMemberRole, removeMember } from "@/lib/actions/projects";
+import { addMember, changeMemberRole, removeMember, setProjectPm } from "@/lib/actions/projects";
 import { roleLabel } from "@/lib/labels";
 import { projectRolesFor } from "@/lib/auth/capabilities";
 import { useAction } from "@/components/toast";
@@ -13,11 +13,15 @@ import type { Enums } from "@/types/database";
 
 type Candidate = { user_id: string; full_name: string; role: Enums<"user_role">; department: string | null; is_member: boolean };
 type ProjectRole = Enums<"project_member_role">;
+type PmCandidate = { id: string; full_name: string; role: Enums<"user_role"> };
 
-/** Members with open tasks, and the lead PM, can't be removed until reassigned (integrity rule I2). */
-export function MemberTable({ projectId, members, candidates, canManage, canAddPm, leadPmId }: {
+/**
+ * Members with open tasks, and the lead PM, can't be removed until reassigned (integrity rule I2).
+ * `canChangePm` (Admin only, any project): the lead PM row gets Change PM / Remove PM (public.admin_set_project_pm).
+ */
+export function MemberTable({ projectId, members, candidates, canManage, canAddPm, leadPmId, canChangePm = false, pmCandidates = [] }: {
   projectId: string; members: (Member & { open_tasks?: number; share_pct?: number | null })[]; candidates: Candidate[];
-  canManage: boolean; canAddPm: boolean; leadPmId: string | null;
+  canManage: boolean; canAddPm: boolean; leadPmId: string | null; canChangePm?: boolean; pmCandidates?: PmCandidate[];
 }) {
   const { pending, run } = useAction();
   const [open, setOpen] = useState(false);
@@ -26,9 +30,19 @@ export function MemberTable({ projectId, members, candidates, canManage, canAddP
   const available = candidates.filter((c) => !c.is_member);
   const whoRoles = projectRolesFor(candidates.find((c) => c.user_id === who)?.role ?? "engineer", canAddPm);
   const chosenRole = whoRoles.includes(role) ? role : whoRoles[0];
+  const [pmOpen, setPmOpen] = useState(false);
+  const [newPm, setNewPm] = useState("");
+  const leadPm = members.find((m) => m.user_id === leadPmId);
+  const pmChoices = pmCandidates.filter((c) => c.id !== leadPmId);
+  const openPmDialog = () => { setNewPm(""); setPmOpen(true); };
   return (
     <div className="space-y-3">
-      {canManage ? <div className="flex justify-end"><Button size="sm" onClick={() => setOpen(true)} disabled={!available.length}>Add member</Button></div> : null}
+      {canManage || canChangePm ? (
+        <div className="flex justify-end gap-2">
+          {canChangePm && !leadPmId ? <Button size="sm" variant="secondary" onClick={openPmDialog} disabled={pending || !pmChoices.length}>Set PM</Button> : null}
+          {canManage ? <Button size="sm" onClick={() => setOpen(true)} disabled={!available.length}>Add member</Button> : null}
+        </div>
+      ) : null}
       <Table>
         <thead><tr><th>Person</th><th>Project role</th><th>Account role</th><th>Open tasks</th><th>Share</th>{canManage ? <th /> : null}</tr></thead>
         <tbody>
@@ -51,9 +65,18 @@ export function MemberTable({ projectId, members, candidates, canManage, canAddP
                 <td>{m.share_pct == null ? "—" : `${Number(m.share_pct).toFixed(1)}%`}</td>
                 {canManage ? (
                   <td className="text-right">
+                    {canChangePm && m.user_id === leadPmId ? (
+                      <span className="inline-flex gap-1">
+                        <Button variant="ghost" size="sm" disabled={pending || !pmChoices.length} onClick={openPmDialog}>Change PM</Button>
+                        <Button variant="ghost" size="sm" disabled={pending}
+                          onClick={() => confirm(`Remove ${m.full_name} as PM of this project?\n\nThey leave this project only. Their account and their other projects are not affected.`)
+                            && run(() => setProjectPm(projectId, null))}>Remove PM</Button>
+                      </span>
+                    ) : (
                     <Button variant="ghost" size="sm" disabled={pending || !canRemove}
                       title={m.user_id === leadPmId ? "Change the lead PM in project settings first" : !canRemove ? "An admin or the department head removes a PM" : undefined}
                       onClick={() => confirm(`Remove ${m.full_name} from this project?`) && run(() => removeMember(projectId, m.user_id))}>Remove</Button>
+                    )}
                   </td>
                 ) : null}
               </tr>
@@ -86,6 +109,22 @@ export function MemberTable({ projectId, members, candidates, canManage, canAddP
           </form>
         </DialogContent>
       </Dialog>
+      {canChangePm ? (
+        <Dialog open={pmOpen} onOpenChange={setPmOpen}>
+          <DialogContent title={leadPm ? "Change project PM" : "Set project PM"}
+            description={leadPm ? `${leadPm.full_name} stops being PM and leaves this project only. Their account and their other projects are not affected.` : "The person you choose becomes this project's PM and a member of it."}>
+            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (newPm) run(() => setProjectPm(projectId, newPm), () => setPmOpen(false)); }}>
+              <Field label="New PM" htmlFor="pm-who">
+                <Select id="pm-who" value={newPm} onChange={(e) => setNewPm(e.target.value)} required>
+                  <option value="">Choose a person</option>
+                  {pmChoices.map((c) => <option key={c.id} value={c.id}>{c.full_name} · {roleLabel[c.role]}</option>)}
+                </Select>
+              </Field>
+              <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setPmOpen(false)}>Cancel</Button><Button type="submit" pending={pending} disabled={!newPm}>{leadPm ? "Change PM" : "Set PM"}</Button></div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

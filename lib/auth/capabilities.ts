@@ -20,6 +20,13 @@ export function canEditProjectStructure(s: Session, p: ProjectRef): boolean {
   return s.isAdmin || s.headedDepartmentIds.includes(p.department_id);
 }
 /**
+ * Replace or remove a project's PM straight from the Persons (Members) list: Admin only, on any project, member
+ * or not (public.admin_set_project_pm, migration 36). PM, Department Head and Engineer don't get these controls.
+ */
+export function canChangeProjectPm(s: Session): boolean {
+  return s.isAdmin;
+}
+/**
  * Project roles a person can hold (project_members trigger): Engineer for engineer / PM accounts, PM for
  * PM / Department Head / Admin accounts. Only an Admin or the project's Department Head (`canAddPm`) adds,
  * changes or removes PM members; a project PM manages engineer members.

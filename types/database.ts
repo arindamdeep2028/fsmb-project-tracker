@@ -1907,6 +1907,7 @@ export type Database = {
       announcement_feed: { Args: Record<PropertyKey, never>; Returns: { id: string; kind: "general" | "project"; project_id: string | null; project_code: string | null; project_name: string | null; title: string; message: string; priority: "Normal" | "Important" | "Urgent"; pinned: boolean; expires_at: string | null; expired: boolean; published_at: string; author_id: string | null; author_name: string | null; author_role: Database["public"]["Enums"]["user_role"] | null; updated_at: string | null; updated_by_name: string | null; updated_by_role: Database["public"]["Enums"]["user_role"] | null; department_ids: string[]; department_names: string[]; read_at: string | null; can_edit: boolean; readers: number | null; audience: number | null }[] }
       announcement_targets: { Args: Record<PropertyKey, never>; Returns: Json }
       announcement_unread_count: { Args: Record<PropertyKey, never>; Returns: number }
+      admin_set_project_pm: { Args: { p_project: string; p_pm?: string | null }; Returns: undefined }
       assignable_users: { Args: { p_project: string }; Returns: { user_id: string; full_name: string; role: Database["public"]["Enums"]["user_role"]; department: string; is_member: boolean }[] }
       complete_task: { Args: { p_task: string }; Returns: Database["public"]["Tables"]["tasks"]["Row"] }
       department_dashboard: { Args: { p_department?: string; p_from?: string; p_to?: string }; Returns: Json }

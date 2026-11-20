@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreateProject, canExportCsv, canManageProject, taskCaps } from "@/lib/auth/capabilities";
+import { canChangeProjectPm, canCreateProject, canExportCsv, canManageProject, taskCaps } from "@/lib/auth/capabilities";
 import type { Session } from "@/lib/auth/session";
 
 const base = (over: Partial<Session> = {}): Session => ({
@@ -15,6 +15,12 @@ describe("capabilities mirror the database rules (UI only; RLS enforces)", () =>
     expect(canManageProject(s, { id: "other", department_id: "dx" })).toBe(true);
     expect(canCreateProject(s)).toBe(true);
     expect(canExportCsv(s)).toBe(true);
+  });
+  it("only an Admin changes or removes a project PM from the Persons list, member or not (migration 36)", () => {
+    expect(canChangeProjectPm(base({ isAdmin: true, memberProjectIds: [] }))).toBe(true);
+    expect(canChangeProjectPm(base({ profile: { role: "pm" } as Session["profile"], pmProjectIds: ["p1"] }))).toBe(false);
+    expect(canChangeProjectPm(base({ profile: { role: "dept_head" } as Session["profile"], headedDepartmentIds: ["d1"] }))).toBe(false);
+    expect(canChangeProjectPm(base())).toBe(false);
   });
   it("engineers never get CSV export (v2 §14.8)", () => {
     expect(canExportCsv(base())).toBe(false);

@@ -83,6 +83,15 @@ export async function removeMember(projectId: string, userId: string): Promise<A
   return { ok: true, message: "Member removed" };
 }
 
+/** Admin only (enforced by public.admin_set_project_pm): replace the project's PM, or remove it with `pmId = null`. */
+export async function setProjectPm(projectId: string, pmId: string | null): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("admin_set_project_pm", { p_project: projectId, p_pm: pmId });
+  if (error) return fail(error);
+  refresh();
+  return { ok: true, message: pmId ? "Project PM changed" : "Project PM removed" };
+}
+
 export async function changeMemberRole(projectId: string, userId: string, role: Enums<"project_member_role">): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.from("project_members").update({ member_role: role }).eq("project_id", projectId).eq("user_id", userId);

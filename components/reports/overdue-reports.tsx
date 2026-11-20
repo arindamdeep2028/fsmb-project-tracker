@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CircleCheck } from "lucide-react";
 import { OVERDUE_LOOKBACK_DAYS, type OverdueItem } from "@/lib/overdue";
 import { href } from "@/lib/drill";
 import { sheetDate, weekday } from "@/lib/sheet";
@@ -10,7 +11,19 @@ const SHOWN = 10;
  * Each line opens that person's row for that day in the project's Daily reports tab; for an Admin it opens
  * the row ready to fill in (only an Admin can complete a past report). `own`: the viewer's own reports.
  */
-export function OverdueReports({ items, canFill, own = false }: { items: OverdueItem[]; canFill: boolean; own?: boolean }) {
+export function OverdueReports({ items, canFill, own = false, compact = false }: {
+  items: OverdueItem[]; canFill: boolean; own?: boolean;
+  /** the Engineer dashboard's slim bars (the other dashboards keep the default) */
+  compact?: boolean;
+}) {
+  if (!items.length && compact) {
+    return (
+      <p data-testid="overdue-reports" className="flex items-center gap-3 rounded-lg border border-signal-green/25 bg-[#eef5ef] px-4 py-2.5 text-[15px] text-ink">
+        <CircleCheck size={22} aria-hidden className="shrink-0 fill-signal-green text-white" />
+        No overdue daily reports in the last {OVERDUE_LOOKBACK_DAYS} days.
+      </p>
+    );
+  }
   if (!items.length) {
     return <p data-testid="overdue-reports" className="mb-6 rounded-lg border border-line bg-panel px-4 py-3 text-sm text-ink-soft">No overdue daily reports in the last {OVERDUE_LOOKBACK_DAYS} days.</p>;
   }

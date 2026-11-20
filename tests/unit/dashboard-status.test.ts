@@ -28,3 +28,26 @@ describe("Engineer dashboard status panels", () => {
     expect(w["In Progress"] + w["Not Started"] + w.Blocked).toBe(open.length);
   });
 });
+
+describe("Admin dashboard: projects by status", () => {
+  it("each project counts once: at risk, else overdue, else blocked, else on track", async () => {
+    const { projectGroup, projectsByStatus } = await import("@/lib/dashboard-status");
+    expect(projectGroup({ at_risk: true, overdue_tasks: 3, blocked_tasks: 1 })).toBe("At Risk");
+    expect(projectGroup({ at_risk: false, overdue_tasks: 2, blocked_tasks: 1 })).toBe("Overdue");
+    expect(projectGroup({ at_risk: false, overdue_tasks: 0, blocked_tasks: 2 })).toBe("Blocked");
+    expect(projectGroup({ at_risk: null, overdue_tasks: null, blocked_tasks: null })).toBe("On Track");
+    const ps = [{ at_risk: true }, { overdue_tasks: 1 }, { blocked_tasks: 1 }, {}, {}];
+    const c = projectsByStatus(ps);
+    expect(c).toEqual({ "On Track": 2, "At Risk": 1, Overdue: 1, Blocked: 1 });
+    expect(Object.values(c).reduce((a, b) => a + b, 0)).toBe(ps.length);
+  });
+});
+
+describe("Admin dashboard clock", () => {
+  it("shows the Dhaka date and a 12-hour time", async () => {
+    const { dhakaClock: format } = await import("@/lib/dashboard-status");
+    expect(format(new Date("2026-11-20T09:01:00Z"))).toBe("Fri, 20 Nov 2026 · 3:01 PM");   // 15:01 in Dhaka
+    expect(format(new Date("2026-11-20T18:05:00Z"))).toBe("Sat, 21 Nov 2026 · 12:05 AM");  // past midnight in Dhaka
+    expect(format(new Date("2026-11-20T06:00:00Z"))).toBe("Fri, 20 Nov 2026 · 12:00 PM");  // noon
+  });
+});

@@ -50,3 +50,30 @@ export function weekTaskStatus(open: { status: string }[], completedDates: strin
   out.Completed = completedDates.filter((d) => d >= from).length;
   return out;
 }
+
+/** Admin dashboard "Projects by Status": each project once, in the first group that applies (display only). */
+export const PROJECT_GROUPS = ["On Track", "At Risk", "Overdue", "Blocked"] as const;
+export type ProjectGroup = (typeof PROJECT_GROUPS)[number];
+export const PROJECT_GROUP_COLOR: Record<ProjectGroup, string> = {
+  "On Track": "#34483c", "At Risk": "#c4302b", Overdue: "#b7791f", Blocked: "#a3adb8",
+};
+/** At Risk (the database's at_risk flag) first, then any overdue task, then any blocked task; otherwise On Track. */
+export function projectGroup(p: { at_risk?: boolean | null; overdue_tasks?: number | null; blocked_tasks?: number | null }): ProjectGroup {
+  if (p.at_risk) return "At Risk";
+  if ((p.overdue_tasks ?? 0) > 0) return "Overdue";
+  if ((p.blocked_tasks ?? 0) > 0) return "Blocked";
+  return "On Track";
+}
+export function projectsByStatus(projects: Parameters<typeof projectGroup>[0][]): Record<ProjectGroup, number> {
+  const out: Record<ProjectGroup, number> = { "On Track": 0, "At Risk": 0, Overdue: 0, Blocked: 0 };
+  for (const p of projects) out[projectGroup(p)]++;
+  return out;
+}
+
+/** "Fri, 20 Nov 2026 · 3:01 PM" in Dhaka time (12-hour clock). */
+export const dhakaClock = (d: Date) => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dhaka", weekday: "short", day: "numeric", month: "short", year: "numeric" })
+    .formatToParts(d).map((x) => [x.type, x.value]));
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Dhaka", hour: "numeric", minute: "2-digit", hour12: true }).format(d);
+  return `${p.weekday}, ${p.day} ${p.month} ${p.year} · ${time}`;
+};

@@ -54,3 +54,18 @@ export async function getEngineerStatusData(userId: string, projectIds: string[]
     completedDates: (done.data ?? []).map((t) => (t.completed_on ? fmt(t.completed_on, "yyyy-MM-dd") : "")).filter(Boolean),
   };
 }
+
+/**
+ * Admin dashboard donut (read-only, the viewer's own access): the stored status of every work item in the given
+ * projects — subtasks and tasks without subtasks, so a task is never counted twice with its own subtasks.
+ */
+export async function getWorkItemStatuses(projectIds: string[]): Promise<string[]> {
+  if (!projectIds.length) return [];
+  const supabase = await createClient();
+  const [tasks, rollup] = await Promise.all([
+    supabase.from("tasks").select("id, status").in("project_id", projectIds).eq("archived", false),
+    supabase.from("task_rollup").select("task_id, is_leaf").in("project_id", projectIds),
+  ]);
+  const leaf = new Map((rollup.data ?? []).map((r) => [r.task_id, r.is_leaf]));
+  return (tasks.data ?? []).filter((t) => leaf.get(t.id) ?? true).map((t) => t.status as string);
+}
